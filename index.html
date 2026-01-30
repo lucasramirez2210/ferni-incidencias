@@ -50,7 +50,7 @@
         const { useState, useEffect, useRef } = React;
         
         const SUCURSAL_FIJA = 'FERNI07';
-        const ADMIN_EMAIL = 'lucas.ramirez2210@gmail.com';
+        const ADMINS = ['lucas.ramirez2210@gmail.com', 'gastonrivero043@gmail.com'];
 
         // Función para comprimir imágenes (más compresión para Firestore)
         const comprimirImagen = (base64, maxWidth = 800, quality = 0.6) => {
@@ -174,13 +174,14 @@
           const [cargando, setCargando] = useState(false);
           const [validandoIA, setValidandoIA] = useState(false);
           const [notificacionesHabilitadas, setNotificacionesHabilitadas] = useState(false);
-          const [informeIA, setInformeIA] = useState(null);
-          const [generandoInforme, setGenerandoInforme] = useState(false);
 
           useEffect(() => {
             const usuarioGuardado = localStorage.getItem('ferni_usuario');
             if (usuarioGuardado) {
               const userData = JSON.parse(usuarioGuardado);
+              // Recalcular esAdmin por si cambió la lista de admins
+              userData.esAdmin = ADMINS.includes(userData.email?.toLowerCase());
+              console.log('Usuario cargado:', userData.email, 'Es Admin:', userData.esAdmin);
               setUsuario(userData);
               setVista('lista');
               verificarPermisoNotificaciones();
@@ -237,7 +238,7 @@
             try {
               if (!notificacionesHabilitadas) return;
               
-              if (esAdmin && usuario?.email !== ADMIN_EMAIL) return;
+              if (esAdmin && !ADMINS.includes(usuario?.email?.toLowerCase())) return;
 
               if ('Notification' in window && Notification.permission === 'granted') {
                 new Notification(titulo, {
@@ -329,83 +330,25 @@
             }
           };
 
-          const generarInformeIA = async () => {
+          const eliminarReporte = async (reporteId) => {
             if (!usuario?.esAdmin) return;
             
-            setGenerandoInforme(true);
+            const confirmar = confirm('¿Seguro que querés eliminar este reporte? Esta acción no se puede deshacer.');
+            if (!confirmar) return;
+            
             try {
-              console.log('🤖 Generando informe IA...');
-              
-              // Preparar datos para el análisis
-              const datosParaIA = reportes.map(r => ({
-                categoria: r.categoria,
-                descripcion: r.descripcion,
-                estado: r.estado,
-                fecha_creacion: r.fecha_creacion?.toDate ? r.fecha_creacion.toDate().toISOString() : r.fecha_creacion,
-                fecha_resolucion: r.fecha_resolucion?.toDate ? r.fecha_resolucion.toDate().toISOString() : null,
-                usuario_reporta: r.usuario_reporta,
-                usuario_resuelve: r.usuario_resuelve
-              }));
-
-              const response = await fetch("https://api.anthropic.com/v1/messages", {
-                method: "POST",
-                headers: {
-                  "Content-Type": "application/json",
-                },
-                body: JSON.stringify({
-                  model: "claude-sonnet-4-20250514",
-                  max_tokens: 2000,
-                  messages: [{
-                    role: "user",
-                    content: `Sos un analista experto en retail. Analizá estos reportes de incidencias de FERNI 07 y generá un informe ejecutivo con insights accionables.
-
-DATOS:
-${JSON.stringify(datosParaIA, null, 2)}
-
-Respondé SOLO con JSON en este formato:
-{
-  "resumen_ejecutivo": "texto breve",
-  "problemas_frecuentes": ["problema 1", "problema 2", "problema 3"],
-  "categoria_critica": "nombre de categoría con más problemas",
-  "tiempo_promedio_resolucion": "estimado en horas",
-  "tendencias": ["tendencia 1", "tendencia 2"],
-  "recomendaciones": ["recomendación 1", "recomendación 2", "recomendación 3"],
-  "empleados_destacados": ["nombre 1", "nombre 2"],
-  "areas_atencion": ["área 1", "área 2"]
-}`
-                  }]
-                })
-              });
-
-              const data = await response.json();
-              const textoRespuesta = data.content.find(c => c.type === 'text')?.text || '';
-              
-              let informe;
-              try {
-                const jsonMatch = textoRespuesta.match(/\{[\s\S]*\}/);
-                informe = jsonMatch ? JSON.parse(jsonMatch[0]) : null;
-              } catch {
-                informe = null;
-              }
-
-              if (informe) {
-                setInformeIA(informe);
-                console.log('✅ Informe generado');
-              } else {
-                alert('Error al procesar el informe');
-              }
-              
-              setGenerandoInforme(false);
-              
+              await db.collection('reportes').doc(reporteId).delete();
+              console.log('✅ Reporte eliminado');
+              setReporteActual(null);
+              setVista('lista');
             } catch (error) {
-              console.error('Error generando informe:', error);
-              alert('Error al generar informe. Intentá de nuevo.');
-              setGenerandoInforme(false);
+              console.error('Error eliminando reporte:', error);
+              alert('Error al eliminar el reporte. Intentá de nuevo.');
             }
           };
 
           const handleLogin = (nombre, apellido, email) => {
-            const esAdmin = email.toLowerCase() === ADMIN_EMAIL.toLowerCase();
+            const esAdmin = ADMINS.includes(email.toLowerCase());
             const userData = {
               nombre,
               apellido,
@@ -886,6 +829,16 @@ Respondé SOLO con JSON en este formato:
                     
                     <p className="text-gray-700 mb-4">{reporteActual.descripcion}</p>
                     
+                    {usuario.esAdmin && (
+                      <button
+                        onClick={() => eliminarReporte(reporteActual.id)}
+                        className="w-full bg-red-600 hover:bg-red-700 text-white font-semibold py-3 rounded-lg mb-4 flex items-center justify-center gap-2"
+                      >
+                        <X size={20} />
+                        Eliminar Reporte (Admin)
+                      </button>
+                    )}
+                    
                     <div className="text-sm text-gray-500 space-y-1">
                       <p><strong>Creado:</strong> {fechaCreacion.toLocaleString('es-AR')}</p>
                       <p><strong>Reportado por:</strong> {reporteActual.usuario_reporta}</p>
@@ -1021,88 +974,6 @@ Respondé SOLO con JSON en este formato:
                 </div>
 
                 <div className="p-4 space-y-4">
-                  {usuario.esAdmin && (
-                    <div className="bg-gradient-to-r from-purple-600 to-blue-600 rounded-lg p-5 shadow-lg text-white">
-                      <div className="flex items-center justify-between mb-3">
-                        <div>
-                          <h2 className="text-xl font-bold mb-1">🤖 Análisis IA</h2>
-                          <p className="text-sm text-white/80">Insights inteligentes para mejorar FERNI 07</p>
-                        </div>
-                        <button
-                          onClick={generarInformeIA}
-                          disabled={generandoInforme || reportes.length === 0}
-                          className="bg-white/20 hover:bg-white/30 disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold px-4 py-2 rounded-lg transition-all flex items-center gap-2"
-                        >
-                          {generandoInforme ? (
-                            <>
-                              <Loader2 size={16} className="animate-spin" />
-                              Analizando...
-                            </>
-                          ) : (
-                            '📊 Generar Informe'
-                          )}
-                        </button>
-                      </div>
-                      
-                      {informeIA && (
-                        <div className="mt-4 space-y-3 bg-white/10 rounded-lg p-4">
-                          <div className="pb-3 border-b border-white/20">
-                            <h3 className="font-semibold text-sm mb-2">📋 Resumen Ejecutivo</h3>
-                            <p className="text-sm text-white/90">{informeIA.resumen_ejecutivo}</p>
-                          </div>
-                          
-                          <div className="grid grid-cols-2 gap-3">
-                            <div className="bg-white/10 rounded p-3">
-                              <div className="text-xs text-white/70 mb-1">Categoría Crítica</div>
-                              <div className="font-bold">{informeIA.categoria_critica}</div>
-                            </div>
-                            <div className="bg-white/10 rounded p-3">
-                              <div className="text-xs text-white/70 mb-1">Tiempo Promedio</div>
-                              <div className="font-bold">{informeIA.tiempo_promedio_resolucion}</div>
-                            </div>
-                          </div>
-                          
-                          <div>
-                            <h3 className="font-semibold text-sm mb-2">🔥 Problemas Frecuentes</h3>
-                            <div className="space-y-1">
-                              {informeIA.problemas_frecuentes?.map((p, i) => (
-                                <div key={i} className="text-sm bg-white/10 rounded px-3 py-2">• {p}</div>
-                              ))}
-                            </div>
-                          </div>
-                          
-                          <div>
-                            <h3 className="font-semibold text-sm mb-2">💡 Recomendaciones</h3>
-                            <div className="space-y-1">
-                              {informeIA.recomendaciones?.map((r, i) => (
-                                <div key={i} className="text-sm bg-green-500/20 rounded px-3 py-2">✓ {r}</div>
-                              ))}
-                            </div>
-                          </div>
-                          
-                          {informeIA.empleados_destacados?.length > 0 && (
-                            <div>
-                              <h3 className="font-semibold text-sm mb-2">⭐ Empleados Destacados</h3>
-                              <div className="flex flex-wrap gap-2">
-                                {informeIA.empleados_destacados.map((e, i) => (
-                                  <span key={i} className="bg-yellow-500/20 px-3 py-1 rounded-full text-sm font-medium">{e}</span>
-                                ))}
-                              </div>
-                            </div>
-                          )}
-                        </div>
-                      )}
-                      
-                      {!informeIA && !generandoInforme && reportes.length > 0 && (
-                        <p className="text-sm text-white/70 mt-3">Generá un informe para obtener insights inteligentes sobre los reportes</p>
-                      )}
-                      
-                      {reportes.length === 0 && (
-                        <p className="text-sm text-white/70 mt-3">Necesitás al menos un reporte para generar un informe</p>
-                      )}
-                    </div>
-                  )}
-                  
                   <div className="bg-white rounded-lg p-5 shadow-sm border-2 border-[#1E3A5F]">
                     <div className="flex items-center gap-2 mb-4">
                       <User size={20} className="text-[#1E3A5F]" />
