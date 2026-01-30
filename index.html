@@ -291,43 +291,6 @@
             }
           };
 
-          const resolverReporte = async (reporteId, fotoSolucion) => {
-            setValidandoIA(true);
-            const reporte = reportes.find(r => r.id === reporteId);
-            
-            try {
-              console.log('Comprimiendo imagen de solución...');
-              const fotoComprimida = await comprimirImagen(fotoSolucion, 800, 0.6);
-              
-              // PASO 1: Marcar como resuelto INMEDIATAMENTE (sin esperar IA)
-              await db.collection('reportes').doc(reporteId).update({
-                foto_solucion: fotoComprimida,
-                estado: 'resuelto',
-                fecha_resolucion: firebase.firestore.Timestamp.now(),
-                usuario_resuelve: usuario.nombreCompleto,
-                analisis_ia: {
-                  resuelto: true,
-                  confianza: "validando",
-                  observaciones: "Validación IA en progreso..."
-                }
-              });
-
-              console.log('✅ Reporte marcado como resuelto - IA validando en background');
-              
-              // Cambiar vista INMEDIATAMENTE (usuario no espera)
-              setValidandoIA(false);
-              setVista('lista');
-              
-              // PASO 2: Validar con IA EN BACKGROUND (usuario ya no ve esto)
-              validarConIAEnBackground(reporteId, reporte, fotoComprimida);
-              
-            } catch (error) {
-              console.error('Error resolviendo:', error);
-              alert('Error al resolver el reporte. Intentá de nuevo.');
-              setValidandoIA(false);
-            }
-          };
-
           // Función que valida con IA en background (después de que el usuario se fue)
           const validarConIAEnBackground = async (reporteId, reporte, fotoComprimida) => {
             try {
@@ -428,6 +391,43 @@
             } catch (error) {
               console.error('Error en validación IA background:', error);
               // Si falla la IA, dejarlo como resuelto (ya lo marcamos antes)
+            }
+          };
+
+          const resolverReporte = async (reporteId, fotoSolucion) => {
+            setValidandoIA(true);
+            const reporte = reportes.find(r => r.id === reporteId);
+            
+            try {
+              console.log('Comprimiendo imagen de solución...');
+              const fotoComprimida = await comprimirImagen(fotoSolucion, 800, 0.6);
+              
+              // PASO 1: Marcar como resuelto INMEDIATAMENTE (sin esperar IA)
+              await db.collection('reportes').doc(reporteId).update({
+                foto_solucion: fotoComprimida,
+                estado: 'resuelto',
+                fecha_resolucion: firebase.firestore.Timestamp.now(),
+                usuario_resuelve: usuario.nombreCompleto,
+                analisis_ia: {
+                  resuelto: true,
+                  confianza: "validando",
+                  observaciones: "Validación IA en progreso..."
+                }
+              });
+
+              console.log('✅ Reporte marcado como resuelto - IA validando en background');
+              
+              // Cambiar vista INMEDIATAMENTE (usuario no espera)
+              setValidandoIA(false);
+              setVista('lista');
+              
+              // PASO 2: Validar con IA EN BACKGROUND (usuario ya no ve esto)
+              setTimeout(() => validarConIAEnBackground(reporteId, reporte, fotoComprimida), 100);
+              
+            } catch (error) {
+              console.error('Error resolviendo:', error);
+              alert('Error al resolver el reporte. Intentá de nuevo.');
+              setValidandoIA(false);
             }
           };
 
