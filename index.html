@@ -299,7 +299,40 @@
               console.log('Comprimiendo imagen de solución...');
               const fotoComprimida = await comprimirImagen(fotoSolucion, 800, 0.6);
               
-              // Validar con IA usando base64
+              // PASO 1: Marcar como resuelto INMEDIATAMENTE (sin esperar IA)
+              await db.collection('reportes').doc(reporteId).update({
+                foto_solucion: fotoComprimida,
+                estado: 'resuelto',
+                fecha_resolucion: firebase.firestore.Timestamp.now(),
+                usuario_resuelve: usuario.nombreCompleto,
+                analisis_ia: {
+                  resuelto: true,
+                  confianza: "validando",
+                  observaciones: "Validación IA en progreso..."
+                }
+              });
+
+              console.log('✅ Reporte marcado como resuelto - IA validando en background');
+              
+              // Cambiar vista INMEDIATAMENTE (usuario no espera)
+              setValidandoIA(false);
+              setVista('lista');
+              
+              // PASO 2: Validar con IA EN BACKGROUND (usuario ya no ve esto)
+              validarConIAEnBackground(reporteId, reporte, fotoComprimida);
+              
+            } catch (error) {
+              console.error('Error resolviendo:', error);
+              alert('Error al resolver el reporte. Intentá de nuevo.');
+              setValidandoIA(false);
+            }
+          };
+
+          // Función que valida con IA en background (después de que el usuario se fue)
+          const validarConIAEnBackground = async (reporteId, reporte, fotoComprimida) => {
+            try {
+              console.log('🤖 Iniciando validación IA en background...');
+              
               const response = await fetch("https://api.anthropic.com/v1/messages", {
                 method: "POST",
                 headers: {
@@ -364,31 +397,37 @@
                 };
               }
 
-              // Actualizar en Firestore con imagen en base64
+              console.log('🤖 Resultado IA:', analisis);
+
+              // Actualizar con resultado de IA
               await db.collection('reportes').doc(reporteId).update({
-                foto_solucion: fotoComprimida,
                 estado: analisis.resuelto ? 'resuelto' : 'en_proceso',
-                fecha_resolucion: firebase.firestore.Timestamp.now(),
-                usuario_resuelve: usuario.nombreCompleto,
                 analisis_ia: analisis
               });
 
               const categoria = CATEGORIAS.find(c => c.id === reporte.categoria);
               
-              // Cambiar vista PRIMERO
-              setValidandoIA(false);
-              setVista('lista');
+              // Si la IA dice que NO está resuelto, notificar al admin
+              if (!analisis.resuelto) {
+                enviarNotificacion(
+                  '⚠️ IA: Verificar Solución',
+                  `${categoria?.icon} ${categoria?.nombre} - ${analisis.observaciones}`,
+                  true // Solo admin
+                );
+              } else {
+                // Si está bien resuelto, notificar al admin también
+                enviarNotificacion(
+                  '✅ Problema Resuelto',
+                  `${categoria?.icon} ${categoria?.nombre} - IA: ${analisis.observaciones}`,
+                  true // Solo admin
+                );
+              }
               
-              // Notificar después (si falla, no afecta la experiencia)
-              enviarNotificacion(
-                analisis.resuelto ? '✅ Problema Resuelto' : '⚠️ Verificar Solución',
-                `${categoria?.icon} ${categoria?.nombre} - IA: ${analisis.observaciones}`,
-                true
-              );
+              console.log('✅ Validación IA completada en background');
+              
             } catch (error) {
-              console.error('Error resolviendo:', error);
-              alert('Error al resolver el reporte. Intentá de nuevo.');
-              setValidandoIA(false);
+              console.error('Error en validación IA background:', error);
+              // Si falla la IA, dejarlo como resuelto (ya lo marcamos antes)
             }
           };
 
