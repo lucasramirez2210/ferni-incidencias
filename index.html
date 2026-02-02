@@ -45,11 +45,21 @@
         // CONFIGURACIÓN
         // ========================================
         const DIAS_RETENCION = 90;
-        const ADMINS = ['Lucas', 'Gastón Rivero'];
+        
+        // Credenciales de administradores
+        const ADMINS = [
+          { nombre: 'Lucas', email: 'lucas@ferni.com', password: 'ferni2025' },
+          { nombre: 'Gastón Rivero', email: 'gaston@ferni.com', password: 'ferni2025' }
+        ];
+        
+        // Las 9 sucursales
         const SUCURSALES = [
           { id: 'F1', nombre: 'FERNI 1' },
+          { id: 'F2', nombre: 'FERNI 2' },
           { id: 'F3', nombre: 'FERNI 3' },
           { id: 'F4', nombre: 'FERNI 4' },
+          { id: 'F5', nombre: 'FERNI 5' },
+          { id: 'F6', nombre: 'FERNI 6' },
           { id: 'F7', nombre: 'FERNI 7' },
           { id: 'F8', nombre: 'FERNI 8' },
           { id: 'F9', nombre: 'FERNI 9' }
@@ -62,6 +72,37 @@
           { id: 'inventario', nombre: 'Inventario', color: '#9B59B6', icon: '📦' },
           { id: 'ambiental', nombre: 'Mejoras Ambientales', color: '#27AE60', icon: '♻️' }
         ];
+
+        // ========================================
+        // FUNCIÓN: MIGRAR REPORTES SIN SUCURSAL
+        // ========================================
+        const migrarReportesSinSucursal = async () => {
+          try {
+            console.log('🔄 Verificando reportes sin sucursal...');
+            
+            const snapshot = await db.collection('reportes')
+              .where('sucursal', '==', null)
+              .get();
+            
+            if (snapshot.empty) {
+              console.log('✅ No hay reportes sin sucursal');
+              return;
+            }
+            
+            console.log(`📋 Encontrados ${snapshot.size} reportes sin sucursal, asignando a FERNI 7...`);
+            
+            const batch = db.batch();
+            snapshot.docs.forEach(doc => {
+              batch.update(doc.ref, { sucursal: 'F7' });
+            });
+            
+            await batch.commit();
+            console.log(`✅ ${snapshot.size} reportes migrados a FERNI 7`);
+            
+          } catch (error) {
+            console.error('❌ Error en migración:', error);
+          }
+        };
 
         // ========================================
         // FUNCIÓN: COMPRIMIR FOTO
@@ -185,12 +226,21 @@
           const [usuario, setUsuario] = useState(null);
           const [sucursalUsuario, setSucursalUsuario] = useState(null);
           const [sucursalActiva, setSucursalActiva] = useState(null);
+          const [esAdmin, setEsAdmin] = useState(false);
           const [reportes, setReportes] = useState([]);
           const [filtroEstado, setFiltroEstado] = useState('todos');
           const [reporteActual, setReporteActual] = useState(null);
           const [cargando, setCargando] = useState(false);
 
-          const esAdmin = usuario && ADMINS.includes(usuario);
+          // Migrar reportes sin sucursal al cargar (solo una vez)
+          useEffect(() => {
+            const migrado = localStorage.getItem('reportes_migrados');
+            if (!migrado) {
+              migrarReportesSinSucursal().then(() => {
+                localStorage.setItem('reportes_migrados', 'true');
+              });
+            }
+          }, []);
 
           // Ejecutar limpieza automática (solo admins)
           useEffect(() => {
@@ -227,10 +277,17 @@
           // VISTA: LOGIN
           // ========================================
           const VistaLogin = () => {
+            const [tipoLogin, setTipoLogin] = useState('empleado'); // 'empleado' o 'admin'
+            
+            // Empleado
             const [nombre, setNombre] = useState('');
             const [sucursal, setSucursal] = useState('');
+            
+            // Admin
+            const [email, setEmail] = useState('');
+            const [password, setPassword] = useState('');
 
-            const handleLogin = () => {
+            const handleLoginEmpleado = () => {
               if (!nombre.trim() || !sucursal) {
                 alert('Por favor completá nombre y sucursal');
                 return;
@@ -238,10 +295,28 @@
 
               setUsuario(nombre.trim());
               setSucursalUsuario(sucursal);
+              setSucursalActiva(sucursal);
+              setEsAdmin(false);
+              setVista('lista');
+            };
+
+            const handleLoginAdmin = () => {
+              if (!email.trim() || !password.trim()) {
+                alert('Por favor completá email y contraseña');
+                return;
+              }
+
+              const admin = ADMINS.find(a => a.email === email && a.password === password);
               
-              // Si es admin, puede ver todas, sino solo su sucursal
-              setSucursalActiva(ADMINS.includes(nombre.trim()) ? 'TODAS' : sucursal);
-              
+              if (!admin) {
+                alert('❌ Email o contraseña incorrectos');
+                return;
+              }
+
+              setUsuario(admin.nombre);
+              setSucursalUsuario('TODAS');
+              setSucursalActiva('TODAS');
+              setEsAdmin(true);
               setVista('lista');
             };
 
@@ -254,43 +329,117 @@
                     <p className="text-gray-600">Sistema de Incidencias</p>
                   </div>
                   
-                  <div className="space-y-4">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">
-                        Tu nombre
-                      </label>
-                      <input
-                        type="text"
-                        placeholder="Ingresá tu nombre"
-                        value={nombre}
-                        onChange={(e) => setNombre(e.target.value)}
-                        className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:border-blue-500 focus:outline-none"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">
-                        Tu sucursal
-                      </label>
-                      <select
-                        value={sucursal}
-                        onChange={(e) => setSucursal(e.target.value)}
-                        className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:border-blue-500 focus:outline-none bg-white"
-                      >
-                        <option value="">Seleccioná tu tienda</option>
-                        {SUCURSALES.map(s => (
-                          <option key={s.id} value={s.id}>{s.nombre}</option>
-                        ))}
-                      </select>
-                    </div>
+                  {/* Selector de tipo de login */}
+                  <div className="flex gap-2 mb-6">
+                    <button
+                      onClick={() => setTipoLogin('empleado')}
+                      className={`flex-1 py-3 rounded-lg font-semibold transition ${
+                        tipoLogin === 'empleado'
+                          ? 'bg-blue-600 text-white'
+                          : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                      }`}
+                    >
+                      👤 Empleado
+                    </button>
+                    <button
+                      onClick={() => setTipoLogin('admin')}
+                      className={`flex-1 py-3 rounded-lg font-semibold transition ${
+                        tipoLogin === 'admin'
+                          ? 'bg-blue-600 text-white'
+                          : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                      }`}
+                    >
+                      👑 Admin
+                    </button>
                   </div>
-                  
-                  <button
-                    onClick={handleLogin}
-                    className="w-full bg-blue-600 text-white py-3 rounded-lg font-semibold hover:bg-blue-700 transition mt-6"
-                  >
-                    Ingresar
-                  </button>
+
+                  {/* Login Empleado */}
+                  {tipoLogin === 'empleado' && (
+                    <div className="space-y-4">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                          Tu nombre
+                        </label>
+                        <input
+                          type="text"
+                          placeholder="Nombre y Apellido"
+                          value={nombre}
+                          onChange={(e) => setNombre(e.target.value)}
+                          className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:border-blue-500 focus:outline-none"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                          Tu sucursal
+                        </label>
+                        <select
+                          value={sucursal}
+                          onChange={(e) => setSucursal(e.target.value)}
+                          className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:border-blue-500 focus:outline-none bg-white"
+                        >
+                          <option value="">Seleccioná tu tienda</option>
+                          {SUCURSALES.map(s => (
+                            <option key={s.id} value={s.id}>{s.nombre}</option>
+                          ))}
+                        </select>
+                      </div>
+                      
+                      <button
+                        onClick={handleLoginEmpleado}
+                        className="w-full bg-blue-600 text-white py-3 rounded-lg font-semibold hover:bg-blue-700 transition"
+                      >
+                        Ingresar
+                      </button>
+                    </div>
+                  )}
+
+                  {/* Login Admin */}
+                  {tipoLogin === 'admin' && (
+                    <div className="space-y-4">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                          Email
+                        </label>
+                        <input
+                          type="email"
+                          placeholder="admin@ferni.com"
+                          value={email}
+                          onChange={(e) => setEmail(e.target.value)}
+                          className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:border-blue-500 focus:outline-none"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                          Contraseña
+                        </label>
+                        <input
+                          type="password"
+                          placeholder="••••••••"
+                          value={password}
+                          onChange={(e) => setPassword(e.target.value)}
+                          onKeyPress={(e) => e.key === 'Enter' && handleLoginAdmin()}
+                          className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:border-blue-500 focus:outline-none"
+                        />
+                      </div>
+                      
+                      <button
+                        onClick={handleLoginAdmin}
+                        className="w-full bg-blue-600 text-white py-3 rounded-lg font-semibold hover:bg-blue-700 transition"
+                      >
+                        Ingresar como Admin
+                      </button>
+
+                      <div className="mt-4 p-3 bg-blue-50 rounded-lg">
+                        <p className="text-xs text-blue-800">
+                          <strong>Credenciales de prueba:</strong><br/>
+                          lucas@ferni.com / ferni2025<br/>
+                          gaston@ferni.com / ferni2025
+                        </p>
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
             );
@@ -315,7 +464,9 @@
                   <div className="flex justify-between items-start mb-4">
                     <div className="flex-1">
                       <h1 className="text-2xl font-bold mb-1">FERNI Incidencias</h1>
-                      <p className="text-blue-100 text-sm">Hola, {usuario}</p>
+                      <p className="text-blue-100 text-sm">
+                        Hola, {usuario} {esAdmin && '👑'}
+                      </p>
                       
                       {/* Selector de sucursal (solo admins) */}
                       {esAdmin && (
@@ -500,7 +651,7 @@
                   reportadoPor: usuario,
                   estado: 'abierto',
                   fechaCreacion: new Date(),
-                  sucursal: esAdmin ? sucursalActiva : sucursalUsuario
+                  sucursal: esAdmin && sucursalActiva !== 'TODAS' ? sucursalActiva : sucursalUsuario
                 });
 
                 alert('✅ Reporte creado exitosamente');
@@ -816,7 +967,6 @@
           // VISTA: DASHBOARD
           // ========================================
           const VistaDashboard = () => {
-            // Stats generales
             const stats = {
               total: reportes.length,
               abiertos: reportes.filter(r => r.estado === 'abierto').length,
@@ -826,7 +976,6 @@
                 : 0
             };
 
-            // Stats por sucursal (solo para admins viendo todas)
             const statsPorSucursal = esAdmin && sucursalActiva === 'TODAS' 
               ? SUCURSALES.map(suc => {
                   const reportesSuc = reportes.filter(r => r.sucursal === suc.id);
@@ -843,7 +992,6 @@
                 }).filter(s => s.total > 0).sort((a, b) => b.tasaResolucion - a.tasaResolucion)
               : null;
 
-            // Por categoría
             const porCategoria = CATEGORIAS.map(cat => {
               const reportesCat = reportes.filter(r => r.categoria === cat.id);
               return {
@@ -854,7 +1002,6 @@
               };
             }).filter(cat => cat.total > 0);
 
-            // Top reportadores
             const reportadores = {};
             reportes.forEach(r => {
               reportadores[r.reportadoPor] = (reportadores[r.reportadoPor] || 0) + 1;
@@ -863,7 +1010,6 @@
               .sort((a, b) => b[1] - a[1])
               .slice(0, 5);
 
-            // Top resolvedores
             const resolvedores = {};
             reportes.filter(r => r.resueltoPor).forEach(r => {
               resolvedores[r.resueltoPor] = (resolvedores[r.resueltoPor] || 0) + 1;
@@ -891,7 +1037,6 @@
                 </div>
 
                 <div className="p-6 space-y-6">
-                  {/* KPIs principales */}
                   <div className="grid grid-cols-2 gap-4">
                     <div className="bg-white rounded-lg p-4 shadow">
                       <div className="text-3xl font-bold text-blue-600">{stats.total}</div>
@@ -911,7 +1056,6 @@
                     </div>
                   </div>
 
-                  {/* Stats por sucursal (solo admins viendo todas) */}
                   {statsPorSucursal && (
                     <div className="bg-white rounded-lg p-6 shadow">
                       <h2 className="text-xl font-bold text-gray-800 mb-4">🏪 Por Sucursal</h2>
@@ -941,7 +1085,6 @@
                     </div>
                   )}
 
-                  {/* Por categoría */}
                   <div className="bg-white rounded-lg p-6 shadow">
                     <h2 className="text-xl font-bold text-gray-800 mb-4">Por Categoría</h2>
                     <div className="space-y-4">
@@ -963,7 +1106,6 @@
                     </div>
                   </div>
 
-                  {/* Top reportadores */}
                   {topReportadores.length > 0 && (
                     <div className="bg-white rounded-lg p-6 shadow">
                       <h2 className="text-xl font-bold text-gray-800 mb-4">🏆 Top Reportadores</h2>
@@ -988,7 +1130,6 @@
                     </div>
                   )}
 
-                  {/* Top resolvedores */}
                   {topResolvedores.length > 0 && (
                     <div className="bg-white rounded-lg p-6 shadow">
                       <h2 className="text-xl font-bold text-gray-800 mb-4">⚡ Top Resolvedores</h2>
@@ -1013,7 +1154,6 @@
                     </div>
                   )}
 
-                  {/* Info de limpieza automática (solo admins) */}
                   {esAdmin && (
                     <div className="bg-blue-50 rounded-lg p-4 border border-blue-200">
                       <div className="flex gap-3">
@@ -1032,9 +1172,6 @@
             );
           };
 
-          // ========================================
-          // RENDERIZADO PRINCIPAL
-          // ========================================
           return (
             <div>
               {vista === 'login' && <VistaLogin />}
@@ -1046,7 +1183,6 @@
           );
         }
 
-        // Renderizar app
         const root = ReactDOM.createRoot(document.getElementById('root'));
         root.render(<FerniApp />);
     </script>
