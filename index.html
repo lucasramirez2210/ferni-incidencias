@@ -80,27 +80,46 @@
           try {
             console.log('🔄 Verificando reportes sin sucursal...');
             
-            const snapshot = await db.collection('reportes')
-              .where('sucursal', '==', null)
-              .get();
+            // Cargar TODOS los reportes (sin filtro)
+            const snapshot = await db.collection('reportes').get();
             
             if (snapshot.empty) {
-              console.log('✅ No hay reportes sin sucursal');
+              console.log('✅ No hay reportes en la base de datos');
               return;
             }
             
-            console.log(`📋 Encontrados ${snapshot.size} reportes sin sucursal, asignando a FERNI 7...`);
-            
-            const batch = db.batch();
-            snapshot.docs.forEach(doc => {
-              batch.update(doc.ref, { sucursal: 'F7' });
+            // Filtrar en JavaScript los que no tienen sucursal
+            const reportesSinSucursal = snapshot.docs.filter(doc => {
+              const data = doc.data();
+              return !data.sucursal || data.sucursal === null || data.sucursal === undefined;
             });
             
-            await batch.commit();
-            console.log(`✅ ${snapshot.size} reportes migrados a FERNI 7`);
+            if (reportesSinSucursal.length === 0) {
+              console.log('✅ Todos los reportes ya tienen sucursal asignada');
+              return;
+            }
+            
+            console.log(`📋 Encontrados ${reportesSinSucursal.length} reportes sin sucursal, asignando a FERNI 7...`);
+            
+            // Actualizar en lotes de 500 (límite de Firestore)
+            const batchSize = 500;
+            for (let i = 0; i < reportesSinSucursal.length; i += batchSize) {
+              const batch = db.batch();
+              const batchDocs = reportesSinSucursal.slice(i, i + batchSize);
+              
+              batchDocs.forEach(doc => {
+                batch.update(doc.ref, { sucursal: 'F7' });
+              });
+              
+              await batch.commit();
+              console.log(`✅ Migrados ${Math.min(i + batchSize, reportesSinSucursal.length)} de ${reportesSinSucursal.length} reportes`);
+            }
+            
+            console.log(`🎉 Migración completa: ${reportesSinSucursal.length} reportes asignados a FERNI 7`);
             
           } catch (error) {
             console.error('❌ Error en migración:', error);
+            console.error('Detalles:', error.message);
           }
         };
 
@@ -232,15 +251,21 @@
           const [reporteActual, setReporteActual] = useState(null);
           const [cargando, setCargando] = useState(false);
 
-          // Migrar reportes sin sucursal al cargar (solo una vez)
+          // Migrar reportes sin sucursal (solo admins, primera vez que entran)
           useEffect(() => {
-            const migrado = localStorage.getItem('reportes_migrados');
-            if (!migrado) {
-              migrarReportesSinSucursal().then(() => {
-                localStorage.setItem('reportes_migrados', 'true');
-              });
-            }
-          }, []);
+            const ejecutarMigracion = async () => {
+              if (esAdmin) {
+                const migrado = localStorage.getItem('reportes_migrados_v2');
+                if (!migrado) {
+                  console.log('👑 Admin detectado, verificando migración...');
+                  await migrarReportesSinSucursal();
+                  localStorage.setItem('reportes_migrados_v2', 'true');
+                }
+              }
+            };
+            
+            ejecutarMigracion();
+          }, [esAdmin]);
 
           // Ejecutar limpieza automática (solo admins)
           useEffect(() => {
@@ -1147,16 +1172,32 @@
                   )}
 
                   {esAdmin && (
-                    <div className="bg-blue-50 rounded-lg p-4 border border-blue-200">
-                      <div className="flex gap-3">
-                        <div className="text-2xl">🧹</div>
-                        <div>
-                          <div className="font-semibold text-blue-900">Limpieza Automática Activa</div>
-                          <div className="text-sm text-blue-700">
-                            Las fotos de reportes resueltos se eliminan automáticamente después de {DIAS_RETENCION} días.
+                    <div className="space-y-3">
+                      <div className="bg-blue-50 rounded-lg p-4 border border-blue-200">
+                        <div className="flex gap-3">
+                          <div className="text-2xl">🧹</div>
+                          <div>
+                            <div className="font-semibold text-blue-900">Limpieza Automática Activa</div>
+                            <div className="text-sm text-blue-700">
+                              Las fotos de reportes resueltos se eliminan automáticamente después de {DIAS_RETENCION} días.
+                            </div>
                           </div>
                         </div>
                       </div>
+
+                      <button
+                        onClick={async () => {
+                          if (confirm('¿Querés migrar reportes sin sucursal a FERNI 7? Esto asignará todos los reportes antiguos que no tengan sucursal a FERNI 7.')) {
+                            console.log('🔄 Iniciando migración manual...');
+                            await migrarReportesSinSucursal();
+                            alert('✅ Migración completada. Revisá la consola (F12) para ver los detalles.');
+                            window.location.reload();
+                          }
+                        }}
+                        className="w-full bg-purple-600 text-white py-3 rounded-lg font-semibold hover:bg-purple-700 transition"
+                      >
+                        🔄 Migrar Reportes sin Sucursal a F7
+                      </button>
                     </div>
                   )}
                 </div>
