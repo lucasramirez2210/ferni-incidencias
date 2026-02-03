@@ -121,7 +121,39 @@
         };
 
         // ========================================
-        // LIMPIAR FOTOS VIEJAS (sin orderBy, todo en JS)
+        // SUBIR FOTO: intenta Storage, si falla → base64
+        // ========================================
+        const subirFoto = (file, carpeta = 'reportes') => {
+          return new Promise((resolve) => {
+            // Intentar subir a Storage con timeout de 10s
+            const timeout = setTimeout(() => {
+              console.warn('⚠️ Storage timeout, cayendo a base64');
+              resolve(null); // señal para usar base64
+            }, 10000);
+
+            const storageRef = storage.ref(`${carpeta}/${Date.now()}_${file.name}`);
+            storageRef.put(file).then(async () => {
+              clearTimeout(timeout);
+              const url = await storageRef.getDownloadURL();
+              console.log('✅ Foto subida a Storage');
+              resolve(url);
+            }).catch((err) => {
+              clearTimeout(timeout);
+              console.warn('⚠️ Storage falló, cayendo a base64:', err.message);
+              resolve(null);
+            });
+          });
+        };
+
+        // Convierte un File a string base64
+        const fileToBase64 = (file) => {
+          return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = (e) => resolve(e.target.result);
+            reader.onerror = reject;
+            reader.readAsDataURL(file);
+          });
+        };
         // ========================================
         const limpiarFotosViejas = async () => {
           try {
@@ -404,16 +436,17 @@
               if (!categoria || !descripcion || !foto) { alert('Completá todos los campos'); return; }
               setCargando(true);
               try {
-                // Subir foto a Storage
-                const storageRef = storage.ref(`reportes/${Date.now()}_${foto.name}`);
-                await storageRef.put(foto);
-                const fotoURL = await storageRef.getDownloadURL();
+                // Intentar Storage; si falla, usar base64
+                let fotoGuardar = await subirFoto(foto, 'reportes');
+                if (!fotoGuardar) {
+                  console.log('📦 Guardando foto como base64...');
+                  fotoGuardar = await fileToBase64(foto);
+                }
 
-                // Guardar con campos snake_case (consistente con datos existentes)
                 await db.collection('reportes').add({
                   categoria,
                   descripcion,
-                  foto_problema: fotoURL,
+                  foto_problema: fotoGuardar,
                   foto_solucion: null,
                   usuario_reporta: usuario,
                   usuario_resuelve: null,
@@ -427,8 +460,8 @@
                 alert('✅ Reporte creado exitosamente');
                 setVista('lista');
               } catch (error) {
-                console.error('Error al crear reporte:', error);
-                alert('Error al crear reporte');
+                console.error('❌ Error al crear reporte:', error);
+                alert('Error al crear reporte: ' + error.message);
               } finally {
                 setCargando(false);
               }
@@ -518,13 +551,16 @@
               if (!fotoSolucion) { alert('Tomá una foto de la solución'); return; }
               setCargando(true);
               try {
-                const storageRef = storage.ref(`soluciones/${Date.now()}_${fotoSolucion.name}`);
-                await storageRef.put(fotoSolucion);
-                const fotoURL = await storageRef.getDownloadURL();
+                // Intentar Storage; si falla, usar base64
+                let fotoGuardar = await subirFoto(fotoSolucion, 'soluciones');
+                if (!fotoGuardar) {
+                  console.log('📦 Guardando foto solución como base64...');
+                  fotoGuardar = await fileToBase64(fotoSolucion);
+                }
 
                 await db.collection('reportes').doc(reporteActual.id).update({
                   estado: 'resuelto',
-                  foto_solucion: fotoURL,
+                  foto_solucion: fotoGuardar,
                   usuario_resuelve: usuario,
                   fecha_resolucion: new Date()
                 });
@@ -532,8 +568,8 @@
                 alert('✅ Reporte resuelto exitosamente');
                 setVista('lista');
               } catch (error) {
-                console.error('Error al resolver reporte:', error);
-                alert('Error al resolver reporte');
+                console.error('❌ Error al resolver reporte:', error);
+                alert('Error al resolver: ' + error.message);
               } finally {
                 setCargando(false);
               }
