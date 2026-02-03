@@ -62,7 +62,7 @@
         ];
 
         const CATEGORIAS = [
-          { id: 'visual', nombre: 'Exhibiciones', color: '#FF6B35', icon: '🎯' },
+          { id: 'visual', nombre: 'Visual Merchandising', color: '#FF6B35', icon: '🏪' },
           { id: 'limpieza', nombre: 'Limpieza y Orden', color: '#4ECDC4', icon: '🧹' },
           { id: 'mantenimiento', nombre: 'Mantenimiento', color: '#FFA07A', icon: '🔧' },
           { id: 'inventario', nombre: 'Inventario', color: '#9B59B6', icon: '📦' },
@@ -238,14 +238,13 @@
               <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100 p-4">
                 <div className="bg-white rounded-2xl shadow-xl p-8 w-full max-w-md">
                   <div className="text-center mb-8">
-                    <div className="text-6xl mb-4">🏪</div>
                     <h1 className="text-3xl font-bold text-gray-800 mb-2">FERNI</h1>
                     <p className="text-gray-600">Sistema de Incidencias</p>
                   </div>
                   
                   <div className="flex gap-2 mb-6">
-                    <button onClick={() => setTipoLogin('empleado')} className={`flex-1 py-3 rounded-lg font-semibold transition ${tipoLogin === 'empleado' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}>👤 Empleado</button>
-                    <button onClick={() => setTipoLogin('admin')} className={`flex-1 py-3 rounded-lg font-semibold transition ${tipoLogin === 'admin' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}>👑 Admin</button>
+                    <button onClick={() => setTipoLogin('empleado')} className={`flex-1 py-3 rounded-lg font-semibold transition ${tipoLogin === 'empleado' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}>Usuario</button>
+                    <button onClick={() => setTipoLogin('admin')} className={`flex-1 py-3 rounded-lg font-semibold transition ${tipoLogin === 'admin' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}>Admin</button>
                   </div>
 
                   {tipoLogin === 'empleado' && (
@@ -467,7 +466,7 @@
 
                   <div>
                     <label className="block text-gray-700 font-semibold mb-2">Foto del problema</label>
-                    <input type="file" accept="image/*" capture="environment" onChange={handleFotoChange} className="hidden" id="foto-input" />
+                    <input type="file" accept="image/*" onChange={handleFotoChange} className="hidden" id="foto-input" />
                     <label htmlFor="foto-input" className="block w-full p-6 border-2 border-dashed border-gray-300 rounded-lg text-center cursor-pointer hover:border-blue-500 transition">
                       {previsualizacion ? (
                         <img src={previsualizacion} alt="Preview" className="max-h-48 mx-auto rounded" />
@@ -625,7 +624,7 @@
                   {reporteActual.estado === 'abierto' && (
                     <div className="bg-white rounded-lg p-6 shadow">
                       <h3 className="font-bold text-gray-800 mb-3">Marcar como Resuelto</h3>
-                      <input type="file" accept="image/*" capture="environment" onChange={handleFotoSolucionChange} className="hidden" id="foto-solucion-input" />
+                      <input type="file" accept="image/*" onChange={handleFotoSolucionChange} className="hidden" id="foto-solucion-input" />
                       <label htmlFor="foto-solucion-input" className="block w-full p-6 border-2 border-dashed border-gray-300 rounded-lg text-center cursor-pointer hover:border-green-500 transition mb-4">
                         {previsualizacionSolucion ? (
                           <img src={previsualizacionSolucion} alt="Preview" className="max-h-48 mx-auto rounded" />
