@@ -385,7 +385,7 @@
                         <div className="mt-3">
                           <select value={sucursalActiva} onChange={(e) => setSucursalActiva(e.target.value)} className="px-3 py-2 rounded-lg bg-white/20 text-white border border-white/30 text-sm font-medium focus:outline-none focus:bg-white/30">
                             <option value="TODAS" style={{color:'#000'}}>📊 Todas las sucursales</option>
-                            {SUCURSALES.map(s => <option key={s.id} value={s.id} style={{color:'#000'}}>🏪 {s.nombre}</option>)}
+                            {SUCURSALES.map(s => <option key={s.id} value={s.id} style={{color:'#000'}}>{s.nombre}</option>)}
                           </select>
                         </div>
                       ) : (
@@ -749,33 +749,92 @@
           // DASHBOARD
           // ========================================
           const VistaDashboard = () => {
+            // Estados para filtro de fechas
+            const [filtroFecha, setFiltroFecha] = useState('todo'); // 'todo', 'semana', 'mes', 'mes_anterior', 'personalizado'
+            const [fechaDesde, setFechaDesde] = useState('');
+            const [fechaHasta, setFechaHasta] = useState('');
+
+            // Funciones auxiliares de fechas
+            const hoy = new Date();
+            const inicioSemana = new Date(hoy);
+            inicioSemana.setDate(hoy.getDate() - hoy.getDay());
+            inicioSemana.setHours(0,0,0,0);
+
+            const inicioMes = new Date(hoy.getFullYear(), hoy.getMonth(), 1);
+            const finMes = new Date(hoy.getFullYear(), hoy.getMonth() + 1, 0, 23, 59, 59);
+
+            const inicioMesAnterior = new Date(hoy.getFullYear(), hoy.getMonth() - 1, 1);
+            const finMesAnterior = new Date(hoy.getFullYear(), hoy.getMonth(), 0, 23, 59, 59);
+
+            // Aplicar filtro de fechas
+            const reportesFiltrados = reportes.filter(r => {
+              if (filtroFecha === 'todo') return true;
+
+              const fechaCreacion = getFecha(r.fecha_creacion);
+              if (!fechaCreacion) return false;
+
+              let desde, hasta;
+              
+              if (filtroFecha === 'semana') {
+                desde = inicioSemana;
+                hasta = hoy;
+              } else if (filtroFecha === 'mes') {
+                desde = inicioMes;
+                hasta = finMes;
+              } else if (filtroFecha === 'mes_anterior') {
+                desde = inicioMesAnterior;
+                hasta = finMesAnterior;
+              } else if (filtroFecha === 'personalizado' && fechaDesde && fechaHasta) {
+                desde = new Date(fechaDesde);
+                hasta = new Date(fechaHasta);
+                hasta.setHours(23, 59, 59);
+              } else {
+                return true;
+              }
+
+              return fechaCreacion >= desde && fechaCreacion <= hasta;
+            });
+
+            // Calcular estadísticas con reportes filtrados
             const stats = {
-              total: reportes.length,
-              abiertos: reportes.filter(r => r.estado === 'abierto').length,
-              resueltos: reportes.filter(r => r.estado === 'resuelto').length,
-              tasaResolucion: reportes.length > 0 ? Math.round((reportes.filter(r => r.estado === 'resuelto').length / reportes.length) * 100) : 0
+              total: reportesFiltrados.length,
+              abiertos: reportesFiltrados.filter(r => r.estado === 'abierto').length,
+              resueltos: reportesFiltrados.filter(r => r.estado === 'resuelto').length,
+              tasaResolucion: reportesFiltrados.length > 0 ? Math.round((reportesFiltrados.filter(r => r.estado === 'resuelto').length / reportesFiltrados.length) * 100) : 0
             };
 
             const statsPorSucursal = esAdmin && sucursalActiva === 'TODAS'
               ? SUCURSALES.map(suc => {
-                  const rep = reportes.filter(r => r.sucursal === suc.id);
+                  const rep = reportesFiltrados.filter(r => r.sucursal === suc.id);
                   const res = rep.filter(r => r.estado === 'resuelto').length;
                   return { ...suc, total: rep.length, abiertos: rep.filter(r => r.estado === 'abierto').length, resueltos: res, tasaResolucion: rep.length > 0 ? Math.round((res / rep.length) * 100) : 0 };
                 }).filter(s => s.total > 0).sort((a, b) => b.total - a.total)
               : null;
 
             const porCategoria = CATEGORIAS.map(cat => {
-              const rep = reportes.filter(r => r.categoria === cat.id);
+              const rep = reportesFiltrados.filter(r => r.categoria === cat.id);
               return { ...cat, total: rep.length, abiertos: rep.filter(r => r.estado === 'abierto').length, resueltos: rep.filter(r => r.estado === 'resuelto').length };
             }).filter(cat => cat.total > 0);
 
             const reportadores = {};
-            reportes.forEach(r => { if (r.usuario_reporta) reportadores[r.usuario_reporta] = (reportadores[r.usuario_reporta] || 0) + 1; });
+            reportesFiltrados.forEach(r => { if (r.usuario_reporta) reportadores[r.usuario_reporta] = (reportadores[r.usuario_reporta] || 0) + 1; });
             const topReportadores = Object.entries(reportadores).sort((a, b) => b[1] - a[1]).slice(0, 5);
 
             const resolvedores = {};
-            reportes.filter(r => r.usuario_resuelve).forEach(r => { resolvedores[r.usuario_resuelve] = (resolvedores[r.usuario_resuelve] || 0) + 1; });
+            reportesFiltrados.filter(r => r.usuario_resuelve).forEach(r => { resolvedores[r.usuario_resuelve] = (resolvedores[r.usuario_resuelve] || 0) + 1; });
             const topResolvedores = Object.entries(resolvedores).sort((a, b) => b[1] - a[1]).slice(0, 5);
+
+            // Texto descriptivo del período
+            const getTextoPeriodo = () => {
+              if (filtroFecha === 'todo') return 'Todo el período';
+              if (filtroFecha === 'semana') return 'Esta semana';
+              if (filtroFecha === 'mes') return 'Este mes';
+              if (filtroFecha === 'mes_anterior') return 'Mes anterior';
+              if (filtroFecha === 'personalizado' && fechaDesde && fechaHasta) {
+                return `${new Date(fechaDesde).toLocaleDateString('es-AR')} - ${new Date(fechaHasta).toLocaleDateString('es-AR')}`;
+              }
+              return 'Seleccioná período';
+            };
 
             return (
               <div className="min-h-screen bg-gray-50" id="dashboard-container">
@@ -798,11 +857,65 @@
                   <div className="text-center mb-6 pb-4 border-b-2 border-gray-300">
                     <h1 className="text-3xl font-bold text-gray-900 mb-2">FERNI - Dashboard de Incidencias</h1>
                     <p className="text-lg text-gray-600">{sucursalActiva === 'TODAS' ? 'Todas las Sucursales' : SUCURSALES.find(s => s.id === sucursalActiva)?.nombre}</p>
-                    <p className="text-sm text-gray-500 mt-2">Generado el {new Date().toLocaleDateString('es-AR', { day:'2-digit', month:'long', year:'numeric', hour:'2-digit', minute:'2-digit' })}</p>
+                    <p className="text-sm text-gray-500 mt-2">Período: {getTextoPeriodo()}</p>
+                    <p className="text-sm text-gray-500">Generado el {new Date().toLocaleDateString('es-AR', { day:'2-digit', month:'long', year:'numeric', hour:'2-digit', minute:'2-digit' })}</p>
                   </div>
                 </div>
 
                 <div className="p-6 space-y-6">
+                  {/* Filtro de fechas */}
+                  <div className="bg-white rounded-lg p-4 shadow no-print">
+                    <h3 className="font-bold text-gray-800 mb-3">📅 Filtrar por período</h3>
+                    
+                    {/* Botones rápidos */}
+                    <div className="flex flex-wrap gap-2 mb-4">
+                      <button onClick={() => setFiltroFecha('todo')} className={`px-4 py-2 rounded-lg font-medium transition ${filtroFecha === 'todo' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}>
+                        Todo
+                      </button>
+                      <button onClick={() => setFiltroFecha('semana')} className={`px-4 py-2 rounded-lg font-medium transition ${filtroFecha === 'semana' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}>
+                        Esta semana
+                      </button>
+                      <button onClick={() => setFiltroFecha('mes')} className={`px-4 py-2 rounded-lg font-medium transition ${filtroFecha === 'mes' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}>
+                        Este mes
+                      </button>
+                      <button onClick={() => setFiltroFecha('mes_anterior')} className={`px-4 py-2 rounded-lg font-medium transition ${filtroFecha === 'mes_anterior' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}>
+                        Mes anterior
+                      </button>
+                      <button onClick={() => setFiltroFecha('personalizado')} className={`px-4 py-2 rounded-lg font-medium transition ${filtroFecha === 'personalizado' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}>
+                        Personalizado
+                      </button>
+                    </div>
+
+                    {/* Date pickers (solo si es personalizado) */}
+                    {filtroFecha === 'personalizado' && (
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">Desde</label>
+                          <input 
+                            type="date" 
+                            value={fechaDesde} 
+                            onChange={(e) => setFechaDesde(e.target.value)}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:border-blue-500 focus:outline-none"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">Hasta</label>
+                          <input 
+                            type="date" 
+                            value={fechaHasta} 
+                            onChange={(e) => setFechaHasta(e.target.value)}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:border-blue-500 focus:outline-none"
+                          />
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="mt-3 text-sm text-gray-600">
+                      📌 Mostrando: <span className="font-semibold">{getTextoPeriodo()}</span> ({reportesFiltrados.length} reportes)
+                    </div>
+                  </div>
+
+                  {/* Estadísticas principales */}
                   <div className="grid grid-cols-2 gap-4">
                     <div className="bg-white rounded-lg p-4 shadow"><div className="text-3xl font-bold text-blue-600">{stats.total}</div><div className="text-sm text-gray-600">Total Reportes</div></div>
                     <div className="bg-white rounded-lg p-4 shadow"><div className="text-3xl font-bold text-red-600">{stats.abiertos}</div><div className="text-sm text-gray-600">Abiertos</div></div>
@@ -812,7 +925,7 @@
 
                   {statsPorSucursal && (
                     <div className="bg-white rounded-lg p-6 shadow">
-                      <h2 className="text-xl font-bold text-gray-800 mb-4">🏪 Por Sucursal</h2>
+                      <h2 className="text-xl font-bold text-gray-800 mb-4">Por Sucursal</h2>
                       <div className="space-y-3">
                         {statsPorSucursal.map(suc => (
                           <div key={suc.id} className="border-b border-gray-100 pb-3 last:border-0">
