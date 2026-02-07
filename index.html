@@ -1375,35 +1375,34 @@
                   )}
 
                   {!reporteActual.foto_solucion && reporteActual.estado !== 'resuelto' && (
-                      <div className="bg-white rounded-lg p-5 shadow-sm">
-                        <input
-                          type="file"
-                          ref={fileInputRef}
-                          onChange={handleFotoSolucion}
-                          accept="image/*"
-                          className="hidden"
-                          disabled={validandoIA}
-                        />
-                        
-                        <button
-                          onClick={() => fileInputRef.current?.click()}
-                          disabled={validandoIA}
-                          className="w-full bg-green-600 hover:bg-green-700 text-white font-semibold py-4 rounded-lg shadow-sm hover:shadow-md transition-all disabled:opacity-50 flex items-center justify-center gap-2"
-                        >
-                          {validandoIA ? (
-                            <>
-                              <Loader2 size={20} className="animate-spin" />
-                              Validando con IA...
-                            </>
-                          ) : (
-                            <>
-                              <Camera size={20} />
-                              Subir Foto de Solución
-                            </>
-                          )}
-                        </button>
-                      </div>
-                    )
+                    <div className="bg-white rounded-lg p-5 shadow-sm">
+                      <input
+                        type="file"
+                        ref={fileInputRef}
+                        onChange={handleFotoSolucion}
+                        accept="image/*"
+                        className="hidden"
+                        disabled={validandoIA}
+                      />
+                      
+                      <button
+                        onClick={() => fileInputRef.current?.click()}
+                        disabled={validandoIA}
+                        className="w-full bg-green-600 hover:bg-green-700 text-white font-semibold py-4 rounded-lg shadow-sm hover:shadow-md transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+                      >
+                        {validandoIA ? (
+                          <>
+                            <Loader2 size={20} className="animate-spin" />
+                            Validando con IA...
+                          </>
+                        ) : (
+                          <>
+                            <Camera size={20} />
+                            Subir Foto de Solución
+                          </>
+                        )}
+                      </button>
+                    </div>
                   )}
                   
                   {/* Sección de Comentarios */}
