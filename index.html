@@ -6,13 +6,12 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="theme-color" content="#1E3A5F">
-    <title>FERNI 07 - Sistema de Incidencias</title>
+    <title>FERNI - Sistema de Incidencias</title>
     
-    <!-- Firebase SDK -->
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-storage-compat.js"></script>
     
-    <!-- React -->
     <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
@@ -20,1154 +19,543 @@
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 </head>
 <body>
-    <div id="root">
-        <div style="display: flex; align-items: center; justify-content: center; min-height: 100vh; background: #f5f5f5;">
-            <div style="text-align: center;">
-                <div style="font-size: 48px; margin-bottom: 20px;">📱</div>
-                <div style="font-size: 24px; font-weight: bold; color: #1E3A5F; margin-bottom: 10px;">FERNI 07</div>
-                <div style="color: #666;">Cargando...</div>
-            </div>
-        </div>
-    </div>
+    <div id="root"></div>
 
-    <script>
-        // Inicializar Firebase
+    <script type="text/babel">
+        const { useState, useEffect, useRef } = React;
+
+        // ========================================
+        // FIREBASE CONFIG
+        // ========================================
         const firebaseConfig = {
           apiKey: "AIzaSyASCknH-hS84WKM4sGFehfVraXKm6T-ob0",
           authDomain: "ferni-incidencias.firebaseapp.com",
           projectId: "ferni-incidencias",
           storageBucket: "ferni-incidencias.firebasestorage.app",
           messagingSenderId: "744424538106",
-          appId: "1:744424538106:web:8392fbe66ccbf0c7ca6e43"
+          appId: "1:744424538106:web:8392fbe4f3e8c9b5e7c8d9"
         };
-        
+
         firebase.initializeApp(firebaseConfig);
         const db = firebase.firestore();
+        const storage = firebase.storage();
+
+        // ========================================
+        // CONSTANTES
+        // ========================================
+        const DIAS_RETENCION = 90;
         
-        console.log('Firebase inicializado correctamente');
-    </script>
-
-    <script type="text/babel">
-        const { useState, useEffect, useRef } = React;
+        const ADMINS = [
+          { nombre: 'Lucas', email: 'lucas.ramirez2210@gmail.com', password: 'ferni2025' },
+          { nombre: 'Gastón Rivero', email: 'gastonrivero043@gmail.com', password: 'ferni2025' }
+        ];
         
-        const SUCURSAL_FIJA = 'FERNI07';
-        const ADMINS = ['lucas.ramirez2210@gmail.com', 'gastonrivero043@gmail.com'];
+        const SUCURSALES = [
+          { id: 'F1', nombre: 'FERNI 1' },
+          { id: 'F2', nombre: 'FERNI 2' },
+          { id: 'F3', nombre: 'FERNI 3' },
+          { id: 'F4', nombre: 'FERNI 4' },
+          { id: 'F5', nombre: 'FERNI 5' },
+          { id: 'F6', nombre: 'FERNI 6' },
+          { id: 'F7', nombre: 'FERNI 7' },
+          { id: 'F8', nombre: 'FERNI 8' },
+          { id: 'F9', nombre: 'FERNI 9' }
+        ];
 
-        // Función para comprimir imágenes (más compresión para Firestore)
-        const comprimirImagen = (base64, maxWidth = 800, quality = 0.6) => {
-          return new Promise((resolve) => {
-            const img = new Image();
-            img.onload = () => {
-              const canvas = document.createElement('canvas');
-              let width = img.width;
-              let height = img.height;
+        const CATEGORIAS = [
+          { id: 'visual', nombre: 'Exhibiciones', color: '#000000', icon: '🎯' },
+          { id: 'limpieza', nombre: 'Limpieza y Orden', color: '#000000', icon: '🧹' },
+          { id: 'mantenimiento', nombre: 'Mantenimiento', color: '#000000', icon: '🔧' },
+          { id: 'inventario', nombre: 'Inventario', color: '#000000', icon: '📦' },
+          { id: 'ambiental', nombre: 'Mejoras Ambientales', color: '#000000', icon: '♻️' }
+        ];
 
-              if (width > maxWidth) {
-                height = (height * maxWidth) / width;
-                width = maxWidth;
-              }
+        // ========================================
+        // HELPERS DE FECHA
+        // ========================================
+        const getFecha = (campo) => {
+          if (!campo) return null;
+          if (campo.toDate) return campo.toDate();
+          return new Date(campo);
+        };
 
-              canvas.width = width;
-              canvas.height = height;
-              const ctx = canvas.getContext('2d');
-              ctx.drawImage(img, 0, 0, width, height);
-              
-              resolve(canvas.toDataURL('image/jpeg', quality));
+        const formatFecha = (campo) => {
+          const fecha = getFecha(campo);
+          if (!fecha || isNaN(fecha)) return 'N/A';
+          return fecha.toLocaleString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+        };
+
+        // ========================================
+        // COMPRIMIR FOTO
+        // ========================================
+        const comprimirFoto = (file, maxWidth = 800, quality = 0.7) => {
+          return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = (e) => {
+              const img = new Image();
+              img.onload = () => {
+                const canvas = document.createElement('canvas');
+                let width = img.width;
+                let height = img.height;
+                if (width > maxWidth) {
+                  height = (height * maxWidth) / width;
+                  width = maxWidth;
+                }
+                canvas.width = width;
+                canvas.height = height;
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(img, 0, 0, width, height);
+                canvas.toBlob((blob) => {
+                  if (blob) {
+                    const compressedFile = new File([blob], file.name, { type: 'image/jpeg', lastModified: Date.now() });
+                    console.log(`✅ Foto comprimida: ${(file.size/1024).toFixed(0)}KB → ${(blob.size/1024).toFixed(0)}KB`);
+                    resolve(compressedFile);
+                  } else reject(new Error('Error al comprimir'));
+                }, 'image/jpeg', quality);
+              };
+              img.onerror = () => reject(new Error('Error al cargar imagen'));
+              img.src = e.target.result;
             };
-            img.src = base64;
+            reader.onerror = () => reject(new Error('Error al leer archivo'));
+            reader.readAsDataURL(file);
           });
         };
 
-        // Iconos SVG
-        const Camera = ({ size = 24, className = "" }) => (
-            <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={className}>
-                <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path>
-                <circle cx="12" cy="13" r="4"></circle>
-            </svg>
-        );
+        // ========================================
+        // SUBIR FOTO: intenta Storage, si falla → base64
+        // ========================================
+        const subirFoto = (file, carpeta = 'reportes') => {
+          return new Promise((resolve) => {
+            // Intentar subir a Storage con timeout de 10s
+            const timeout = setTimeout(() => {
+              console.warn('⚠️ Storage timeout, cayendo a base64');
+              resolve(null); // señal para usar base64
+            }, 10000);
 
-        const Plus = ({ size = 24, className = "" }) => (
-            <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={className}>
-                <line x1="12" y1="5" x2="12" y2="19"></line>
-                <line x1="5" y1="12" x2="19" y2="12"></line>
-            </svg>
-        );
+            const storageRef = storage.ref(`${carpeta}/${Date.now()}_${file.name}`);
+            storageRef.put(file).then(async () => {
+              clearTimeout(timeout);
+              const url = await storageRef.getDownloadURL();
+              console.log('✅ Foto subida a Storage');
+              resolve(url);
+            }).catch((err) => {
+              clearTimeout(timeout);
+              console.warn('⚠️ Storage falló, cayendo a base64:', err.message);
+              resolve(null);
+            });
+          });
+        };
 
-        const X = ({ size = 24, className = "" }) => (
-            <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={className}>
-                <line x1="18" y1="6" x2="6" y2="18"></line>
-                <line x1="6" y1="6" x2="18" y2="18"></line>
-            </svg>
-        );
+        // Convierte un File a string base64
+        const fileToBase64 = (file) => {
+          return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = (e) => resolve(e.target.result);
+            reader.onerror = reject;
+            reader.readAsDataURL(file);
+          });
+        };
+        // ========================================
+        const limpiarFotosViejas = async () => {
+          try {
+            console.log('🧹 Iniciando limpieza de fotos antiguas...');
+            const fechaLimite = new Date();
+            fechaLimite.setDate(fechaLimite.getDate() - DIAS_RETENCION);
 
-        const BarChart3 = ({ size = 24, className = "" }) => (
-            <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={className}>
-                <line x1="12" y1="20" x2="12" y2="10"></line>
-                <line x1="18" y1="20" x2="18" y2="4"></line>
-                <line x1="6" y1="20" x2="6" y2="16"></line>
-            </svg>
-        );
+            // Solo where por estado, sin orderBy → no necesita índice compuesto
+            const snapshot = await db.collection('reportes')
+              .where('estado', '==', 'resuelto')
+              .get();
 
-        const AlertCircle = ({ size = 24, className = "" }) => (
-            <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={className}>
-                <circle cx="12" cy="12" r="10"></circle>
-                <line x1="12" y1="8" x2="12" y2="12"></line>
-                <line x1="12" y1="16" x2="12.01" y2="16"></line>
-            </svg>
-        );
+            let fotosEliminadas = 0;
 
-        const CheckCircle = ({ size = 24, className = "" }) => (
-            <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={className}>
-                <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
-                <polyline points="22 4 12 14.01 9 11.01"></polyline>
-            </svg>
-        );
+            for (const doc of snapshot.docs) {
+              const reporte = doc.data();
+              const fecha = getFecha(reporte.fecha_creacion);
+              if (!fecha || fecha >= fechaLimite) continue;
+              if (!reporte.foto_problema && !reporte.foto_solucion) continue;
 
-        const Clock = ({ size = 24, className = "" }) => (
-            <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={className}>
-                <circle cx="12" cy="12" r="10"></circle>
-                <polyline points="12 6 12 12 16 14"></polyline>
-            </svg>
-        );
+              // Si es URL de Storage, intentar borrar del storage
+              if (reporte.foto_problema && reporte.foto_problema.startsWith('http')) {
+                try { await storage.refFromURL(reporte.foto_problema).delete(); } catch(e) {}
+              }
+              if (reporte.foto_solucion && reporte.foto_solucion.startsWith('http')) {
+                try { await storage.refFromURL(reporte.foto_solucion).delete(); } catch(e) {}
+              }
 
-        const Loader2 = ({ size = 24, className = "" }) => (
-            <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={className}>
-                <path d="M21 12a9 9 0 1 1-6.219-8.56"></path>
-            </svg>
-        );
+              await doc.ref.update({ foto_problema: null, foto_solucion: null });
+              fotosEliminadas++;
+            }
 
-        const User = ({ size = 24, className = "" }) => (
-            <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={className}>
-                <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
-                <circle cx="12" cy="7" r="4"></circle>
-            </svg>
-        );
+            console.log(`✅ Limpieza completada: ${fotosEliminadas} fotos eliminadas, 0 errores`);
+          } catch (error) {
+            console.error('❌ Error en limpieza automática:', error);
+          }
+        };
 
-        const LogOut = ({ size = 24, className = "" }) => (
-            <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={className}>
-                <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
-                <polyline points="16 17 21 12 16 7"></polyline>
-                <line x1="21" y1="12" x2="9" y2="12"></line>
-            </svg>
-        );
-
-        const Bell = ({ size = 24, className = "" }) => (
-            <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={className}>
-                <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path>
-                <path d="M13.73 21a2 2 0 0 1-3.46 0"></path>
-            </svg>
-        );
-
-        const Download = ({ size = 24, className = "" }) => (
-            <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={className}>
-                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-                <polyline points="7 10 12 15 17 10"></polyline>
-                <line x1="12" y1="15" x2="12" y2="3"></line>
-            </svg>
-        );
-
-        const CATEGORIAS = [
-          { id: 'visual', nombre: 'Exhibiciones', color: '#FF6B35', icon: '🎯' },
-          { id: 'limpieza', nombre: 'Limpieza y Orden', color: '#4ECDC4', icon: '🧹' },
-          { id: 'mantenimiento', nombre: 'Mantenimiento', color: '#FFA07A', icon: '🔧' },
-          { id: 'inventario', nombre: 'Inventario', color: '#9B59B6', icon: '📦' },
-          { id: 'ambiental', nombre: 'Mejoras Ambientales', color: '#27AE60', icon: '♻️' }
-        ];
-
-        function FerniIncidencias() {
-          const [usuario, setUsuario] = useState(null);
+        // ========================================
+        // COMPONENTE PRINCIPAL
+        // ========================================
+        function FerniApp() {
           const [vista, setVista] = useState('login');
+          const [usuario, setUsuario] = useState(null);
+          const [usuarioEmail, setUsuarioEmail] = useState(null);
+          const [sucursalUsuario, setSucursalUsuario] = useState(null);
+          const [sucursalActiva, setSucursalActiva] = useState(null);
+          const [esAdmin, setEsAdmin] = useState(false);
           const [reportes, setReportes] = useState([]);
+          const [reportesNuevos, setReportesNuevos] = useState([]);
+          const [contadorNuevos, setContadorNuevos] = useState(0);
           const [filtroEstado, setFiltroEstado] = useState('todos');
           const [reporteActual, setReporteActual] = useState(null);
           const [cargando, setCargando] = useState(false);
-          const [validandoIA, setValidandoIA] = useState(false);
-          const [notificacionesHabilitadas, setNotificacionesHabilitadas] = useState(false);
-          const [nuevoComentario, setNuevoComentario] = useState('');
 
+          // Limpieza automática (solo admins)
           useEffect(() => {
-            const usuarioGuardado = localStorage.getItem('ferni_usuario');
-            if (usuarioGuardado) {
-              const userData = JSON.parse(usuarioGuardado);
-              // Recalcular esAdmin por si cambió la lista de admins
-              userData.esAdmin = ADMINS.includes(userData.email?.toLowerCase());
-              console.log('Usuario cargado:', userData.email, 'Es Admin:', userData.esAdmin);
-              setUsuario(userData);
-              setVista('lista');
-              verificarPermisoNotificaciones();
+            if (esAdmin) {
+              limpiarFotosViejas();
             }
-          }, []);
+          }, [esAdmin]);
 
+          // Cargar reportes — sin orderBy en Firestore, ordenamos en JS
           useEffect(() => {
-            if (usuario) {
-              // Suscribirse a cambios en tiempo real de Firebase
-              const unsubscribe = db.collection('reportes')
-                .orderBy('fecha_creacion', 'desc')
-                .onSnapshot((snapshot) => {
-                  const reportesData = snapshot.docs.map(doc => ({
-                    id: doc.id,
-                    ...doc.data()
-                  }));
-                  console.log('Reportes actualizados desde Firebase:', reportesData.length);
-                  setReportes(reportesData);
-                });
+            if (!usuario || !sucursalActiva) return;
 
-              return () => unsubscribe();
+            // Obtener timestamp de última visita
+            const ultimaVisitaKey = `ultimaVisita_${sucursalActiva}`;
+            const ultimaVisita = localStorage.getItem(ultimaVisitaKey);
+            const timestampUltimaVisita = ultimaVisita ? new Date(ultimaVisita) : new Date(0);
+
+            let query = db.collection('reportes');
+            if (sucursalActiva !== 'TODAS') {
+              query = query.where('sucursal', '==', sucursalActiva);
             }
-          }, [usuario]);
 
-          const verificarPermisoNotificaciones = async () => {
-            if ('Notification' in window) {
-              if (Notification.permission === 'granted') {
-                setNotificacionesHabilitadas(true);
-                console.log('✅ Notificaciones activadas');
-              } else if (Notification.permission === 'denied') {
-                setNotificacionesHabilitadas(false);
-                console.log('❌ Notificaciones bloqueadas por el usuario');
-              } else {
-                // Pedir permiso automáticamente
-                console.log('⏳ Solicitando permiso de notificaciones...');
-                const permission = await Notification.requestPermission();
-                setNotificacionesHabilitadas(permission === 'granted');
-                if (permission === 'granted') {
-                  console.log('✅ Notificaciones activadas correctamente');
-                  // Enviar notificación de bienvenida
-                  new Notification('🎉 Notificaciones Activadas', {
-                    body: 'Recibirás alertas de nuevos reportes y resoluciones',
-                    icon: '📱',
-                    vibrate: [200, 100, 200]
-                  });
+            let primeraVez = true;
+
+            const unsubscribe = query.onSnapshot((snapshot) => {
+              const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+              
+              // Ordenar por fecha_creacion DESC en JavaScript
+              data.sort((a, b) => {
+                const fa = getFecha(a.fecha_creacion) || new Date(0);
+                const fb = getFecha(b.fecha_creacion) || new Date(0);
+                return fb - fa;
+              });
+
+              // Contar reportes nuevos desde última visita
+              const nuevos = data.filter(r => {
+                const fecha = getFecha(r.fecha_creacion);
+                return fecha && fecha > timestampUltimaVisita;
+              });
+              setContadorNuevos(nuevos.length);
+
+              // Detectar reportes que acaban de llegar (solo después de primera carga)
+              if (!primeraVez) {
+                const idsAnteriores = new Set(reportes.map(r => r.id));
+                const recienLlegados = data.filter(r => !idsAnteriores.has(r.id)).map(r => r.id);
+                setReportesNuevos(recienLlegados);
+                // Quitar highlight después de 5 segundos
+                if (recienLlegados.length > 0) {
+                  setTimeout(() => setReportesNuevos([]), 5000);
                 }
               }
-            } else {
-              console.log('❌ Este navegador no soporta notificaciones');
-            }
-          };
+              primeraVez = false;
 
-          const enviarNotificacion = (titulo, mensaje, esAdmin = false) => {
-            try {
-              if (!notificacionesHabilitadas) return;
-              
-              if (esAdmin && !ADMINS.includes(usuario?.email?.toLowerCase())) return;
-
-              if ('Notification' in window && Notification.permission === 'granted') {
-                new Notification(titulo, {
-                  body: mensaje,
-                  icon: '📱',
-                  badge: '🔔',
-                  vibrate: [200, 100, 200]
-                });
-              }
-            } catch (error) {
-              console.log('Error enviando notificación (no crítico):', error);
-            }
-          };
-
-          const crearReporte = async (datos) => {
-            setCargando(true);
-            try {
-              console.log('Comprimiendo imagen...');
-              const fotoComprimida = await comprimirImagen(datos.foto, 800, 0.6); // Más compresión
-              
-              const categoria = CATEGORIAS.find(c => c.id === datos.categoria);
-              const nuevoReporte = {
-                sucursal: SUCURSAL_FIJA,
-                categoria: datos.categoria,
-                descripcion: datos.descripcion,
-                foto_problema: fotoComprimida,
-                foto_solucion: null,
-                estado: 'abierto',
-                fecha_creacion: firebase.firestore.Timestamp.now(),
-                fecha_resolucion: null,
-                usuario_reporta: usuario.nombreCompleto,
-                usuario_reporta_email: usuario.email,
-                usuario_resuelve: null,
-                usuario_resuelve_email: null,
-                comentarios: []
-              };
-              
-              console.log('Guardando en Firestore...');
-              await db.collection('reportes').add(nuevoReporte);
-              console.log('✅ Reporte guardado exitosamente');
-              
-              // Cambiar vista PRIMERO (antes de notificar)
-              setCargando(false);
-              setVista('lista');
-              
-              // Notificar después (si falla, no afecta la experiencia del usuario)
-              enviarNotificacion(
-                '🚨 Nuevo Problema Reportado',
-                `${categoria?.icon} ${categoria?.nombre}: ${datos.descripcion.substring(0, 50)}${datos.descripcion.length > 50 ? '...' : ''}`
-              );
-            } catch (error) {
-              console.error('Error creando reporte:', error);
-              alert('Error al guardar el reporte. Por favor intentá de nuevo.');
-              setCargando(false);
-            }
-          };
-
-          const resolverReporte = async (reporteId, fotoSolucion) => {
-            setValidandoIA(true);
-            const reporte = reportes.find(r => r.id === reporteId);
-            
-            try {
-              console.log('📸 Comprimiendo imagen de solución...');
-              const fotoComprimida = await comprimirImagen(fotoSolucion, 800, 0.6);
-              
-              console.log('💾 Guardando en Firebase...');
-              await db.collection('reportes').doc(reporteId).update({
-                foto_solucion: fotoComprimida,
-                estado: 'resuelto',
-                fecha_resolucion: firebase.firestore.Timestamp.now(),
-                usuario_resuelve: usuario.nombreCompleto,
-                usuario_resuelve_email: usuario.email
-              });
-              console.log('✅ Problema resuelto');
-              
-              // Cambiar vista inmediatamente
-              setValidandoIA(false);
-              setVista('lista');
-              
-              // Notificar al admin
-              const categoria = CATEGORIAS.find(c => c.id === reporte.categoria);
-              enviarNotificacion(
-                '✅ Problema Resuelto',
-                `${categoria?.icon} ${categoria?.nombre} - Resuelto por ${usuario.nombreCompleto}`,
-                true
-              );
-              
-            } catch (error) {
-              console.error('❌ Error al resolver:', error);
-              alert('Error al resolver el reporte. Intentá de nuevo.');
-              setValidandoIA(false);
-            }
-          };
-
-          const generarReporteHTML = () => {
-            try {
-              console.log('📄 Generando reporte...');
-              
-              // Calcular métricas
-              const totalReportes = reportes.length;
-              const resueltos = reportes.filter(r => r.estado === 'resuelto').length;
-              const abiertos = reportes.filter(r => r.estado === 'abierto').length;
-              const tasaResolucion = totalReportes > 0 ? Math.round((resueltos / totalReportes) * 100) : 0;
-              
-              // Calcular tiempo promedio de resolución
-              const tiemposResolucion = reportes
-                .filter(r => r.estado === 'resuelto' && r.fecha_resolucion && r.fecha_creacion)
-                .map(r => {
-                  const inicio = r.fecha_creacion?.toDate ? r.fecha_creacion.toDate() : new Date(r.fecha_creacion);
-                  const fin = r.fecha_resolucion?.toDate ? r.fecha_resolucion.toDate() : new Date(r.fecha_resolucion);
-                  return (fin - inicio) / (1000 * 60 * 60); // horas
-                });
-              
-              const tiempoPromedio = tiemposResolucion.length > 0
-                ? (tiemposResolucion.reduce((a, b) => a + b, 0) / tiemposResolucion.length).toFixed(1)
-                : 0;
-              
-              // Contar por categoría
-              const porCategoria = CATEGORIAS.map(cat => ({
-                ...cat,
-                total: reportes.filter(r => r.categoria === cat.id).length,
-                abiertos: reportes.filter(r => r.categoria === cat.id && r.estado === 'abierto').length,
-                resueltos: reportes.filter(r => r.categoria === cat.id && r.estado === 'resuelto').length
-              })).sort((a, b) => b.total - a.total);
-              
-              // Rankings - agrupar por email para evitar duplicados
-              const usuariosStats = {};
-              reportes.forEach(r => {
-                // Usar email como key, nombre para display
-                const emailReporta = r.usuario_reporta_email || r.usuario_reporta;
-                const nombreReporta = r.usuario_reporta;
-                
-                if (emailReporta) {
-                  if (!usuariosStats[emailReporta]) {
-                    usuariosStats[emailReporta] = { nombre: nombreReporta, reportados: 0, resueltos: 0 };
-                  }
-                  usuariosStats[emailReporta].reportados++;
-                }
-                
-                const emailResuelve = r.usuario_resuelve_email || r.usuario_resuelve;
-                const nombreResuelve = r.usuario_resuelve;
-                
-                if (emailResuelve) {
-                  if (!usuariosStats[emailResuelve]) {
-                    usuariosStats[emailResuelve] = { nombre: nombreResuelve, reportados: 0, resueltos: 0 };
-                  }
-                  usuariosStats[emailResuelve].resueltos++;
-                }
-              });
-              
-              const topResolvedores = Object.entries(usuariosStats)
-                .filter(([_, stats]) => stats.resueltos > 0)
-                .sort((a, b) => b[1].resueltos - a[1].resueltos)
-                .slice(0, 5);
-              
-              const topReportadores = Object.entries(usuariosStats)
-                .filter(([_, stats]) => stats.reportados > 0)
-                .sort((a, b) => b[1].reportados - a[1].reportados)
-                .slice(0, 5);
-              
-              // Reportes pendientes
-              const pendientes = reportes.filter(r => r.estado === 'abierto');
-              
-              const fecha = new Date().toLocaleDateString('es-AR', { 
-                weekday: 'long', 
-                year: 'numeric', 
-                month: 'long', 
-                day: 'numeric' 
-              });
-              
-              // Generar HTML
-              const html = `
-<!DOCTYPE html>
-<html lang="es">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>FERNI 07 - Reporte de Incidencias</title>
-    <style>
-        @media print {
-            body { margin: 0; }
-            .no-print { display: none; }
-            .page-break { page-break-after: always; }
-        }
-        
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        
-        body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background: #f5f5f5;
-            padding: 20px;
-        }
-        
-        .container {
-            max-width: 1000px;
-            margin: 0 auto;
-            background: white;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-        }
-        
-        .header {
-            background: linear-gradient(135deg, #1E3A5F 0%, #2A5A8F 100%);
-            color: white;
-            padding: 40px;
-            text-align: center;
-        }
-        
-        .header h1 {
-            font-size: 32px;
-            margin-bottom: 10px;
-        }
-        
-        .header .subtitle {
-            font-size: 16px;
-            opacity: 0.9;
-        }
-        
-        .content {
-            padding: 40px;
-        }
-        
-        .section {
-            margin-bottom: 40px;
-        }
-        
-        .section-title {
-            font-size: 20px;
-            font-weight: bold;
-            color: #1E3A5F;
-            margin-bottom: 20px;
-            padding-bottom: 10px;
-            border-bottom: 3px solid #FF6B35;
-        }
-        
-        .kpi-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 20px;
-            margin-bottom: 30px;
-        }
-        
-        .kpi-card {
-            background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
-            padding: 25px;
-            border-radius: 10px;
-            text-align: center;
-            border-left: 5px solid #1E3A5F;
-        }
-        
-        .kpi-card.success { border-left-color: #27AE60; }
-        .kpi-card.warning { border-left-color: #FF6B35; }
-        .kpi-card.info { border-left-color: #4ECDC4; }
-        
-        .kpi-value {
-            font-size: 42px;
-            font-weight: bold;
-            color: #1E3A5F;
-            margin-bottom: 5px;
-        }
-        
-        .kpi-label {
-            font-size: 14px;
-            color: #666;
-            text-transform: uppercase;
-            letter-spacing: 1px;
-        }
-        
-        .category-item {
-            background: #f8f9fa;
-            padding: 15px 20px;
-            margin-bottom: 10px;
-            border-radius: 8px;
-            border-left: 5px solid;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-        
-        .category-name {
-            font-weight: 600;
-            font-size: 16px;
-        }
-        
-        .category-stats {
-            display: flex;
-            gap: 20px;
-            font-size: 14px;
-        }
-        
-        .stat-badge {
-            padding: 4px 12px;
-            border-radius: 20px;
-            font-weight: 600;
-        }
-        
-        .stat-badge.open { background: #fee; color: #c00; }
-        .stat-badge.resolved { background: #efe; color: #0a0; }
-        
-        .ranking {
-            background: #f8f9fa;
-            padding: 20px;
-            border-radius: 8px;
-            margin-bottom: 20px;
-        }
-        
-        .ranking-item {
-            display: flex;
-            align-items: center;
-            padding: 12px;
-            margin-bottom: 8px;
-            background: white;
-            border-radius: 6px;
-        }
-        
-        .ranking-position {
-            width: 35px;
-            height: 35px;
-            border-radius: 50%;
-            background: #1E3A5F;
-            color: white;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-weight: bold;
-            margin-right: 15px;
-        }
-        
-        .ranking-position.gold { background: #FFD700; color: #000; }
-        .ranking-position.silver { background: #C0C0C0; color: #000; }
-        .ranking-position.bronze { background: #CD7F32; color: #fff; }
-        
-        .ranking-name {
-            flex: 1;
-            font-weight: 600;
-        }
-        
-        .ranking-value {
-            font-size: 20px;
-            font-weight: bold;
-            color: #1E3A5F;
-        }
-        
-        table {
-            width: 100%;
-            border-collapse: collapse;
-            margin-top: 20px;
-        }
-        
-        th {
-            background: #1E3A5F;
-            color: white;
-            padding: 12px;
-            text-align: left;
-            font-weight: 600;
-        }
-        
-        td {
-            padding: 12px;
-            border-bottom: 1px solid #e0e0e0;
-        }
-        
-        tr:hover {
-            background: #f8f9fa;
-        }
-        
-        .badge {
-            display: inline-block;
-            padding: 4px 10px;
-            border-radius: 4px;
-            font-size: 12px;
-            font-weight: 600;
-        }
-        
-        .badge.open { background: #fee; color: #c00; }
-        .badge.resolved { background: #efe; color: #0a0; }
-        
-        .btn-print {
-            position: fixed;
-            bottom: 30px;
-            right: 30px;
-            background: #FF6B35;
-            color: white;
-            border: none;
-            padding: 15px 30px;
-            border-radius: 8px;
-            font-size: 16px;
-            font-weight: 600;
-            cursor: pointer;
-            box-shadow: 0 4px 12px rgba(255,107,53,0.3);
-        }
-        
-        .btn-print:hover {
-            background: #E55A2A;
-            transform: translateY(-2px);
-            box-shadow: 0 6px 16px rgba(255,107,53,0.4);
-        }
-        
-        .grid-2 {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 30px;
-        }
-        
-        @media (max-width: 768px) {
-            .grid-2 { grid-template-columns: 1fr; }
-            .kpi-grid { grid-template-columns: 1fr; }
-        }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <div class="header">
-            <h1>📊 FERNI 07</h1>
-            <div class="subtitle">Reporte de Incidencias</div>
-            <div class="subtitle" style="margin-top: 10px; font-size: 14px;">${fecha}</div>
-        </div>
-        
-        <div class="content">
-            <!-- RESUMEN EJECUTIVO -->
-            <div class="section">
-                <div class="section-title">📋 Resumen Ejecutivo</div>
-                <div class="kpi-grid">
-                    <div class="kpi-card">
-                        <div class="kpi-value">${totalReportes}</div>
-                        <div class="kpi-label">Total Reportes</div>
-                    </div>
-                    <div class="kpi-card success">
-                        <div class="kpi-value">${tasaResolucion}%</div>
-                        <div class="kpi-label">Tasa Resolución</div>
-                    </div>
-                    <div class="kpi-card warning">
-                        <div class="kpi-value">${abiertos}</div>
-                        <div class="kpi-label">Pendientes</div>
-                    </div>
-                    <div class="kpi-card info">
-                        <div class="kpi-value">${tiempoPromedio}h</div>
-                        <div class="kpi-label">Tiempo Promedio</div>
-                    </div>
-                </div>
-            </div>
-            
-            <!-- CATEGORÍAS -->
-            <div class="section">
-                <div class="section-title">🔥 Análisis por Categoría</div>
-                ${porCategoria.map(cat => `
-                    <div class="category-item" style="border-left-color: ${cat.color}">
-                        <div class="category-name">${cat.icon} ${cat.nombre}</div>
-                        <div class="category-stats">
-                            <span class="stat-badge open">${cat.abiertos} abiertos</span>
-                            <span class="stat-badge resolved">${cat.resueltos} resueltos</span>
-                            <strong style="color: ${cat.color}">${cat.total} total</strong>
-                        </div>
-                    </div>
-                `).join('')}
-            </div>
-            
-            <div class="page-break"></div>
-            
-            <!-- RANKINGS -->
-            <div class="section">
-                <div class="section-title">⭐ Desempeño del Equipo</div>
-                <div class="grid-2">
-                    <div class="ranking">
-                        <h3 style="margin-bottom: 15px; color: #1E3A5F;">🏆 Top Resolvedores</h3>
-                        ${topResolvedores.map(([email, stats], i) => `
-                            <div class="ranking-item">
-                                <div class="ranking-position ${i === 0 ? 'gold' : i === 1 ? 'silver' : i === 2 ? 'bronze' : ''}">${i + 1}</div>
-                                <div class="ranking-name">${stats.nombre}</div>
-                                <div class="ranking-value">${stats.resueltos}</div>
-                            </div>
-                        `).join('')}
-                    </div>
-                    
-                    <div class="ranking">
-                        <h3 style="margin-bottom: 15px; color: #1E3A5F;">🔍 Top Reportadores</h3>
-                        ${topReportadores.map(([email, stats], i) => `
-                            <div class="ranking-item">
-                                <div class="ranking-position ${i === 0 ? 'gold' : i === 1 ? 'silver' : i === 2 ? 'bronze' : ''}">${i + 1}</div>
-                                <div class="ranking-name">${stats.nombre}</div>
-                                <div class="ranking-value">${stats.reportados}</div>
-                            </div>
-                        `).join('')}
-                    </div>
-                </div>
-            </div>
-            
-            <!-- REPORTES PENDIENTES -->
-            ${pendientes.length > 0 ? `
-            <div class="section">
-                <div class="section-title">⚠️ Reportes Pendientes (${pendientes.length})</div>
-                <table>
-                    <thead>
-                        <tr>
-                            <th>Fecha</th>
-                            <th>Categoría</th>
-                            <th>Descripción</th>
-                            <th>Reportado Por</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        ${pendientes.slice(0, 10).map(r => {
-                          const cat = CATEGORIAS.find(c => c.id === r.categoria);
-                          const fecha = r.fecha_creacion?.toDate ? r.fecha_creacion.toDate() : new Date(r.fecha_creacion);
-                          return `
-                            <tr>
-                                <td>${fecha.toLocaleDateString('es-AR')}</td>
-                                <td>${cat?.icon} ${cat?.nombre || r.categoria}</td>
-                                <td>${r.descripcion.substring(0, 60)}${r.descripcion.length > 60 ? '...' : ''}</td>
-                                <td>${r.usuario_reporta}</td>
-                            </tr>
-                          `;
-                        }).join('')}
-                    </tbody>
-                </table>
-                ${pendientes.length > 10 ? `<p style="margin-top: 10px; color: #666; font-size: 14px;">Y ${pendientes.length - 10} más...</p>` : ''}
-            </div>
-            ` : '<div class="section"><div class="section-title">✅ No hay reportes pendientes</div><p style="color: #27AE60; font-size: 18px; text-align: center; padding: 20px;">¡Excelente trabajo equipo!</p></div>'}
-            
-            <div style="margin-top: 50px; padding-top: 20px; border-top: 2px solid #e0e0e0; text-align: center; color: #999; font-size: 12px;">
-                Generado el ${new Date().toLocaleString('es-AR')} | FERNI 07 - Sistema de Incidencias
-            </div>
-        </div>
-    </div>
-    
-    <button class="btn-print no-print" onclick="window.print()">🖨️ Imprimir / Guardar PDF</button>
-</body>
-</html>
-              `;
-              
-              // Abrir en nueva ventana
-              const ventana = window.open('', '_blank');
-              ventana.document.write(html);
-              ventana.document.close();
-              
-              console.log('✅ Reporte generado');
-              
-            } catch (error) {
-              console.error('Error generando reporte:', error);
-              alert('Error al generar reporte. Intentá de nuevo.');
-            }
-          };
-
-          const agregarComentario = async (reporteId, texto) => {
-            if (!texto.trim()) return;
-            
-            try {
-              const nuevoComentarioObj = {
-                texto: texto.trim(),
-                usuario: usuario.nombreCompleto,
-                fecha: firebase.firestore.Timestamp.now()
-              };
-              
-              const reporte = reportes.find(r => r.id === reporteId);
-              const comentariosActuales = reporte.comentarios || [];
-              
-              await db.collection('reportes').doc(reporteId).update({
-                comentarios: [...comentariosActuales, nuevoComentarioObj]
-              });
-              
-              setNuevoComentario('');
-              console.log('✅ Comentario agregado');
-              
-            } catch (error) {
-              console.error('Error agregando comentario:', error);
-              alert('Error al agregar comentario. Intentá de nuevo.');
-            }
-          };
-
-          const eliminarReporte = async (reporteId) => {
-            if (!usuario?.esAdmin) return;
-            
-            const confirmar = confirm('¿Seguro que querés eliminar este reporte? Esta acción no se puede deshacer.');
-            if (!confirmar) return;
-            
-            try {
-              await db.collection('reportes').doc(reporteId).delete();
-              console.log('✅ Reporte eliminado');
-              setReporteActual(null);
-              setVista('lista');
-            } catch (error) {
-              console.error('Error eliminando reporte:', error);
-              alert('Error al eliminar el reporte. Intentá de nuevo.');
-            }
-          };
-
-          const handleLogin = (nombre, apellido, email) => {
-            const esAdmin = ADMINS.includes(email.toLowerCase());
-            const userData = {
-              nombre,
-              apellido,
-              email,
-              nombreCompleto: `${nombre} ${apellido}`,
-              esAdmin
-            };
-            setUsuario(userData);
-            localStorage.setItem('ferni_usuario', JSON.stringify(userData));
-            
-            // Activar notificaciones automáticamente
-            verificarPermisoNotificaciones();
-            
-            setVista('lista');
-          };
-
-          const handleLogout = () => {
-            setUsuario(null);
-            localStorage.removeItem('ferni_usuario');
-            setVista('login');
-          };
-
-          const VistaLogin = () => {
-            const [nombre, setNombre] = useState('');
-            const [apellido, setApellido] = useState('');
-            const [email, setEmail] = useState('');
-
-            const handleSubmit = (e) => {
-              e.preventDefault();
-              if (nombre.trim() && apellido.trim() && email.trim()) {
-                handleLogin(nombre.trim(), apellido.trim(), email.trim());
-              }
-            };
-
-            return (
-              <div className="min-h-screen bg-[#f5f5f5] flex items-center justify-center p-4">
-                <div className="w-full max-w-md">
-                  <div className="text-center mb-8">
-                    <div className="text-6xl mb-4">📱</div>
-                    <h1 className="text-3xl font-bold text-[#1E3A5F] mb-2">FERNI 07</h1>
-                    <p className="text-gray-600">Sistema de Incidencias</p>
-                  </div>
-
-                  <div className="bg-white rounded-lg p-6 shadow-sm">
-                    <h2 className="text-xl font-semibold text-gray-900 mb-4">Identificate</h2>
-                    <form onSubmit={handleSubmit} className="space-y-4">
-                      <div>
-                        <label className="block text-sm font-semibold text-gray-700 mb-2">Nombre</label>
-                        <input
-                          type="text"
-                          value={nombre}
-                          onChange={(e) => setNombre(e.target.value)}
-                          placeholder="Ej: Juan"
-                          className="w-full p-3 border-2 border-gray-200 rounded-lg focus:border-[#1E3A5F] focus:outline-none bg-white"
-                          required
-                        />
-                      </div>
-
-                      <div>
-                        <label className="block text-sm font-semibold text-gray-700 mb-2">Apellido</label>
-                        <input
-                          type="text"
-                          value={apellido}
-                          onChange={(e) => setApellido(e.target.value)}
-                          placeholder="Ej: Pérez"
-                          className="w-full p-3 border-2 border-gray-200 rounded-lg focus:border-[#1E3A5F] focus:outline-none bg-white"
-                          required
-                        />
-                      </div>
-
-                      <div>
-                        <label className="block text-sm font-semibold text-gray-700 mb-2">Email</label>
-                        <input
-                          type="email"
-                          value={email}
-                          onChange={(e) => setEmail(e.target.value)}
-                          placeholder="tu.email@ejemplo.com"
-                          className="w-full p-3 border-2 border-gray-200 rounded-lg focus:border-[#1E3A5F] focus:outline-none bg-white"
-                          required
-                        />
-                      </div>
-
-                      <button
-                        type="submit"
-                        className="w-full bg-[#1E3A5F] hover:bg-[#2A4A6F] text-white font-semibold py-3 rounded-lg shadow-sm hover:shadow-md transition-all"
-                      >
-                        Ingresar
-                      </button>
-                    </form>
-                  </div>
-                </div>
-              </div>
-            );
-          };
-
-          const VistaLista = () => {
-            const reportesFiltrados = reportes.filter(r => {
-              if (filtroEstado !== 'todos' && r.estado !== filtroEstado) return false;
-              return true;
+              setReportes(data);
             });
 
-            const stats = {
-              abiertos: reportes.filter(r => r.estado === 'abierto').length,
-              resueltos: reportes.filter(r => r.estado === 'resuelto').length
+            return () => unsubscribe();
+          }, [usuario, sucursalActiva]);
+
+          // ========================================
+          // LOGIN
+          // ========================================
+          const VistaLogin = () => {
+            const [tipoLogin, setTipoLogin] = useState('empleado');
+            const [nombre, setNombre] = useState('');
+            const [sucursal, setSucursal] = useState('');
+            const [email, setEmail] = useState('');
+            const [password, setPassword] = useState('');
+
+            const handleLoginEmpleado = () => {
+              if (!nombre.trim() || !email.trim() || !sucursal) { alert('Completá nombre, email y sucursal'); return; }
+              setUsuario(nombre.trim());
+              setUsuarioEmail(email.trim().toLowerCase());
+              setSucursalUsuario(sucursal);
+              setSucursalActiva(sucursal);
+              setEsAdmin(false);
+              setVista('lista');
+            };
+
+            const handleLoginAdmin = () => {
+              if (!email.trim() || !password.trim()) { alert('Completá email y contraseña'); return; }
+              const admin = ADMINS.find(a => a.email === email && a.password === password);
+              if (!admin) { alert('❌ Email o contraseña incorrectos'); return; }
+              setUsuario(admin.nombre);
+              setUsuarioEmail(email.trim().toLowerCase());
+              setSucursalUsuario('TODAS');
+              setSucursalActiva('TODAS');
+              setEsAdmin(true);
+              setVista('lista');
             };
 
             return (
-              <div className="min-h-screen bg-[#f5f5f5]">
-                <div className="bg-[#1E3A5F] text-white p-6 sticky top-0 z-10 shadow-sm">
-                  <div className="flex items-center justify-between mb-4">
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <h1 className="text-2xl font-bold">FERNI 07</h1>
-                        {usuario.esAdmin && (
-                          <span className="bg-yellow-500 text-black text-xs font-bold px-2 py-1 rounded">
-                            ADMIN
-                          </span>
-                        )}
+              <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100 p-4">
+                <div className="bg-white rounded-2xl shadow-xl p-8 w-full max-w-md">
+                  <div className="text-center mb-8">
+                    <h1 className="text-3xl font-bold text-gray-800 mb-2">FERNI</h1>
+                    <p className="text-gray-600">Sistema de Incidencias</p>
+                  </div>
+                  
+                  <div className="flex gap-2 mb-6">
+                    <button onClick={() => setTipoLogin('empleado')} className={`flex-1 py-3 rounded-lg font-semibold transition ${tipoLogin === 'empleado' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}>Usuario</button>
+                    <button onClick={() => setTipoLogin('admin')} className={`flex-1 py-3 rounded-lg font-semibold transition ${tipoLogin === 'admin' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}>Admin</button>
+                  </div>
+
+                  {tipoLogin === 'empleado' && (
+                    <div className="space-y-4">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">Tu nombre</label>
+                        <input type="text" placeholder="Nombre y Apellido" value={nombre} onChange={(e) => setNombre(e.target.value)} className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:border-blue-500 focus:outline-none" />
                       </div>
-                      <div className="flex items-center gap-2 text-white/70 text-sm mt-1">
-                        <User size={14} />
-                        <span>{usuario.nombreCompleto}</span>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">Tu email</label>
+                        <input type="email" placeholder="tu.email@ejemplo.com" value={email} onChange={(e) => setEmail(e.target.value)} className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:border-blue-500 focus:outline-none" />
                       </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">Tu sucursal</label>
+                        <select value={sucursal} onChange={(e) => setSucursal(e.target.value)} className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:border-blue-500 focus:outline-none bg-white">
+                          <option value="">Seleccioná tu tienda</option>
+                          {SUCURSALES.map(s => <option key={s.id} value={s.id}>{s.nombre}</option>)}
+                        </select>
+                      </div>
+                      <button onClick={handleLoginEmpleado} className="w-full bg-blue-600 text-white py-3 rounded-lg font-semibold hover:bg-blue-700 transition">Ingresar</button>
                     </div>
-                    <div className="flex gap-2">
-                      <button
-                        onClick={verificarPermisoNotificaciones}
-                        className={`relative ${notificacionesHabilitadas ? 'bg-green-500/30' : 'bg-red-500/20'} hover:bg-white/20 p-2 rounded-lg transition-all`}
-                        title={notificacionesHabilitadas ? '✅ Notificaciones activadas' : '⚠️ Activar notificaciones'}
-                      >
-                        <Bell size={20} className={notificacionesHabilitadas ? 'text-green-300' : 'text-red-300'} />
-                        {notificacionesHabilitadas && (
-                          <span className="absolute top-0 right-0 w-2 h-2 bg-green-400 rounded-full"></span>
-                        )}
-                      </button>
-                      <button
-                        onClick={() => setVista('dashboard')}
-                        className="bg-white/10 hover:bg-white/20 p-2 rounded-lg transition-all"
-                      >
-                        <BarChart3 size={20} />
-                      </button>
-                      <button
-                        onClick={handleLogout}
-                        className="bg-white/10 hover:bg-white/20 p-2 rounded-lg transition-all"
-                      >
-                        <LogOut size={20} />
-                      </button>
-                    </div>
-                  </div>
+                  )}
 
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="bg-white/10 rounded-lg p-3 text-center">
-                      <div className="text-2xl font-bold">{stats.abiertos}</div>
-                      <div className="text-xs text-white/70">Abiertos</div>
-                    </div>
-                    <div className="bg-white/10 rounded-lg p-3 text-center">
-                      <div className="text-2xl font-bold">{stats.resueltos}</div>
-                      <div className="text-xs text-white/70">Resueltos</div>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="p-4 bg-white border-b border-gray-200 sticky top-36 z-10">
-                  <div className="flex gap-2 overflow-x-auto pb-2">
-                    {['todos', 'abierto', 'resuelto'].map(estado => (
-                      <button
-                        key={estado}
-                        onClick={() => setFiltroEstado(estado)}
-                        className={`px-4 py-2 rounded-lg font-medium whitespace-nowrap transition-all ${
-                          filtroEstado === estado
-                            ? 'bg-[#1E3A5F] text-white'
-                            : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                        }`}
-                      >
-                        {estado === 'todos' ? 'Todos' : estado.replace('_', ' ').charAt(0).toUpperCase() + estado.replace('_', ' ').slice(1)}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                <div className="p-4 pb-24">
-                  {reportesFiltrados.length === 0 ? (
-                    <div className="text-center py-12 text-gray-400">
-                      <AlertCircle size={64} className="mx-auto mb-4 opacity-50" />
-                      <p className="text-lg">No hay reportes para mostrar</p>
-                    </div>
-                  ) : (
-                    <div className="space-y-3">
-                      {reportesFiltrados.map(reporte => (
-                        <ReporteCard key={reporte.id} reporte={reporte} onClick={() => {
-                          setReporteActual(reporte);
-                          setVista('detalle');
-                        }} />
-                      ))}
+                  {tipoLogin === 'admin' && (
+                    <div className="space-y-4">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">Email</label>
+                        <input type="email" placeholder="admin@ferni.com" value={email} onChange={(e) => setEmail(e.target.value)} className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:border-blue-500 focus:outline-none" />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">Contraseña</label>
+                        <input type="password" placeholder="••••••••" value={password} onChange={(e) => setPassword(e.target.value)} onKeyPress={(e) => e.key === 'Enter' && handleLoginAdmin()} className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:border-blue-500 focus:outline-none" />
+                      </div>
+                      <button onClick={handleLoginAdmin} className="w-full bg-blue-600 text-white py-3 rounded-lg font-semibold hover:bg-blue-700 transition">Ingresar como Admin</button>
                     </div>
                   )}
                 </div>
-
-                <button
-                  onClick={() => setVista('crear')}
-                  className="fixed bottom-6 right-6 bg-[#1E3A5F] hover:bg-[#2A4A6F] text-white p-5 rounded-full shadow-lg hover:shadow-xl transition-all active:scale-95 z-20"
-                >
-                  <Plus size={32} />
-                </button>
               </div>
             );
           };
 
-          const ReporteCard = ({ reporte, onClick }) => {
-            const categoria = CATEGORIAS.find(c => c.id === reporte.categoria);
-            const estadoConfig = {
-              abierto: { color: '#EF4444', icon: AlertCircle, label: 'Abierto' },
-              en_proceso: { color: '#F59E0B', icon: Clock, label: 'En Proceso' },
-              resuelto: { color: '#10B981', icon: CheckCircle, label: 'Resuelto' }
+          // ========================================
+          // LISTA DE REPORTES
+          // ========================================
+          const VistaLista = () => {
+            const reportesFiltrados = reportes.filter(r => filtroEstado === 'todos' || r.estado === filtroEstado);
+            const sucursalNombre = sucursalActiva === 'TODAS' ? 'Todas las Sucursales' : SUCURSALES.find(s => s.id === sucursalActiva)?.nombre || sucursalActiva;
+
+            // Marcar como visto al interactuar
+            const marcarVisto = () => {
+              const ultimaVisitaKey = `ultimaVisita_${sucursalActiva}`;
+              localStorage.setItem(ultimaVisitaKey, new Date().toISOString());
+              setContadorNuevos(0);
             };
-            const config = estadoConfig[reporte.estado];
-            const IconComponent = config.icon;
-            
-            const fechaCreacion = reporte.fecha_creacion?.toDate ? reporte.fecha_creacion.toDate() : new Date(reporte.fecha_creacion);
+
+            // Auto-marcar después de 3 segundos si hay nuevos
+            useEffect(() => {
+              if (contadorNuevos > 0) {
+                const timer = setTimeout(marcarVisto, 3000);
+                return () => clearTimeout(timer);
+              }
+            }, [contadorNuevos]);
 
             return (
-              <div
-                onClick={onClick}
-                className="bg-white rounded-lg overflow-hidden shadow-sm hover:shadow-md transition-all cursor-pointer border-l-4"
-                style={{ borderLeftColor: categoria?.color || '#ccc' }}
-              >
-                <div className="p-4">
-                  <div className="flex items-start justify-between mb-3">
+              <div className="min-h-screen bg-gray-50">
+                <div className="bg-gradient-to-r from-blue-600 to-indigo-600 text-white p-6 shadow-lg">
+                  <div className="flex justify-between items-start mb-4">
                     <div className="flex-1">
-                      <div className="flex items-center gap-2 mb-1">
-                        <span className="text-xl">{categoria?.icon}</span>
-                        <span className="font-semibold text-gray-900">{categoria?.nombre}</span>
+                      <div className="flex items-center gap-3 mb-1">
+                        <h1 className="text-2xl font-bold">FERNI Incidencias</h1>
+                        {contadorNuevos > 0 && (
+                          <span className="bg-red-500 text-white text-xs font-bold px-2 py-1 rounded-full animate-pulse">
+                            {contadorNuevos} nuevo{contadorNuevos > 1 ? 's' : ''}
+                          </span>
+                        )}
                       </div>
+                      <p className="text-blue-100 text-sm">Hola, {usuario} {esAdmin && '👑'}</p>
+                      
+                      {esAdmin ? (
+                        <div className="mt-3">
+                          <select value={sucursalActiva} onChange={(e) => setSucursalActiva(e.target.value)} className="px-3 py-2 rounded-lg bg-white/20 text-white border border-white/30 text-sm font-medium focus:outline-none focus:bg-white/30">
+                            <option value="TODAS" style={{color:'#000'}}>📊 Todas las sucursales</option>
+                            {SUCURSALES.map(s => <option key={s.id} value={s.id} style={{color:'#000'}}>{s.nombre}</option>)}
+                          </select>
+                        </div>
+                      ) : (
+                        <div className="mt-2 text-blue-100 text-sm">📍 {sucursalNombre}</div>
+                      )}
                     </div>
-                    <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-md" style={{ backgroundColor: `${config.color}15` }}>
-                      <IconComponent size={14} style={{ color: config.color }} />
-                      <span className="text-xs font-medium" style={{ color: config.color }}>
-                        {config.label}
-                      </span>
-                    </div>
+                    <button onClick={() => setVista('dashboard')} className="bg-white/20 hover:bg-white/30 px-4 py-2 rounded-lg transition text-sm">📊 Dashboard</button>
                   </div>
-
-                  <p className="text-gray-700 text-sm mb-3 line-clamp-2">{reporte.descripcion}</p>
-
-                  <div className="flex items-center gap-3">
-                    {reporte.foto_problema && (
-                      <img
-                        src={reporte.foto_problema}
-                        alt="Problema"
-                        className="w-16 h-16 object-cover rounded"
-                      />
-                    )}
-                    <div className="text-xs text-gray-500">
-                      <p>{fechaCreacion.toLocaleDateString('es-AR')}</p>
-                      <p>{fechaCreacion.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })}</p>
+                  
+                  <div className="grid grid-cols-3 gap-3">
+                    <div className="bg-white/10 rounded-lg p-3 text-center">
+                      <div className="text-2xl font-bold">{reportes.length}</div>
+                      <div className="text-xs text-blue-100">Total</div>
+                    </div>
+                    <div className="bg-white/10 rounded-lg p-3 text-center">
+                      <div className="text-2xl font-bold">{reportes.filter(r => r.estado === 'abierto').length}</div>
+                      <div className="text-xs text-blue-100">Abiertos</div>
+                    </div>
+                    <div className="bg-white/10 rounded-lg p-3 text-center">
+                      <div className="text-2xl font-bold">{reportes.filter(r => r.estado === 'resuelto').length}</div>
+                      <div className="text-xs text-blue-100">Resueltos</div>
                     </div>
                   </div>
                 </div>
+
+                <div className="p-4 bg-white border-b flex gap-2 overflow-x-auto">
+                  {['todos', 'abierto', 'resuelto'].map(estado => (
+                    <button key={estado} onClick={() => setFiltroEstado(estado)} className={`px-4 py-2 rounded-lg font-medium whitespace-nowrap transition ${filtroEstado === estado ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}>
+                      {estado === 'todos' ? '📋 Todos' : estado === 'abierto' ? '🔴 Abiertos' : '✅ Resueltos'}
+                    </button>
+                  ))}
+                </div>
+
+                <div className="p-4 space-y-3 pb-24">
+                  {reportesFiltrados.length === 0 ? (
+                    <div className="text-center py-12 text-gray-400">
+                      <div className="text-6xl mb-4">📭</div>
+                      <p>No hay reportes</p>
+                    </div>
+                  ) : (
+                    reportesFiltrados.map(reporte => {
+                      const categoria = CATEGORIAS.find(c => c.id === reporte.categoria);
+                      const sucursal = SUCURSALES.find(s => s.id === reporte.sucursal);
+                      const esNuevo = reportesNuevos.includes(reporte.id);
+                      return (
+                        <div 
+                          key={reporte.id} 
+                          onClick={() => { setReporteActual(reporte); setVista('detalle'); marcarVisto(); }} 
+                          className={`bg-white rounded-lg p-4 shadow hover:shadow-md transition cursor-pointer ${esNuevo ? 'ring-2 ring-green-400 animate-pulse' : ''}`} 
+                          style={{ borderLeft: `4px solid ${categoria?.color}` }}
+                        >
+                          <div className="flex justify-between items-start mb-2">
+                            <div className="flex items-center gap-2 flex-1">
+                              {esNuevo && <span className="text-green-500 text-xl">✨</span>}
+                              <span className="text-2xl">{categoria?.icon}</span>
+                              <div className="flex-1">
+                                <div className="font-semibold text-gray-800">{categoria?.nombre}</div>
+                                <div className="text-sm text-gray-500">
+                                  Por {reporte.usuario_reporta}
+                                  {sucursalActiva === 'TODAS' && sucursal && <span className="ml-2 text-blue-600">• {sucursal.nombre}</span>}
+                                </div>
+                              </div>
+                            </div>
+                            <span className={`px-3 py-1 rounded-full text-xs font-medium whitespace-nowrap ${reporte.estado === 'abierto' ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}>
+                              {reporte.estado === 'abierto' ? '🔴 Abierto' : '✅ Resuelto'}
+                            </span>
+                          </div>
+                          <p className="text-gray-600 text-sm mb-2 line-clamp-2">{reporte.descripcion}</p>
+                          <div className="text-xs text-gray-400">{formatFecha(reporte.fecha_creacion)}</div>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+
+                <button onClick={() => setVista('crear')} className="fixed bottom-6 right-6 bg-blue-600 text-white w-16 h-16 rounded-full shadow-lg hover:bg-blue-700 transition flex items-center justify-center text-3xl">+</button>
               </div>
             );
           };
 
+          // ========================================
+          // CREAR REPORTE
+          // ========================================
           const VistaCrear = () => {
-            const [formData, setFormData] = useState({
-              categoria: '',
-              descripcion: '',
-              foto: null
-            });
-            const fileInputRef = useRef(null);
+            const [categoria, setCategoria] = useState('');
+            const [descripcion, setDescripcion] = useState('');
+            const [foto, setFoto] = useState(null);
+            const [previsualizacion, setPrevisualizacion] = useState(null);
 
-            const handleFotoCaptura = (e) => {
+            const handleFotoChange = async (e) => {
               const file = e.target.files[0];
               if (file) {
-                const reader = new FileReader();
-                reader.onloadend = () => {
-                  setFormData({ ...formData, foto: reader.result });
-                };
-                reader.readAsDataURL(file);
+                try {
+                  const fotoComprimida = await comprimirFoto(file);
+                  setFoto(fotoComprimida);
+                  const reader = new FileReader();
+                  reader.onload = (e) => setPrevisualizacion(e.target.result);
+                  reader.readAsDataURL(fotoComprimida);
+                } catch (error) {
+                  console.error('Error al comprimir foto:', error);
+                  alert('Error al procesar la foto');
+                }
               }
             };
 
-            const handleSubmit = () => {
-              if (formData.categoria && formData.descripcion && formData.foto) {
-                crearReporte(formData);
+            const handleCrear = async () => {
+              if (!categoria || !descripcion || !foto) { alert('Completá todos los campos'); return; }
+              setCargando(true);
+              try {
+                // Intentar Storage; si falla, usar base64
+                let fotoGuardar = await subirFoto(foto, 'reportes');
+                if (!fotoGuardar) {
+                  console.log('📦 Guardando foto como base64...');
+                  fotoGuardar = await fileToBase64(foto);
+                }
+
+                await db.collection('reportes').add({
+                  categoria,
+                  descripcion,
+                  foto_problema: fotoGuardar,
+                  foto_solucion: null,
+                  usuario_reporta: usuario,
+                  usuario_reporta_email: usuarioEmail,
+                  usuario_resuelve: null,
+                  usuario_resuelve_email: null,
+                  estado: 'abierto',
+                  fecha_creacion: new Date(),
+                  fecha_resolucion: null,
+                  analisis_ia: null,
+                  sucursal: esAdmin && sucursalActiva !== 'TODAS' ? sucursalActiva : sucursalUsuario,
+                  comentarios: []
+                });
+
+                alert('✅ Reporte creado exitosamente');
+                setVista('lista');
+              } catch (error) {
+                console.error('❌ Error al crear reporte:', error);
+                alert('Error al crear reporte: ' + error.message);
+              } finally {
+                setCargando(false);
               }
             };
+
+            const sucursalCrear = esAdmin && sucursalActiva !== 'TODAS' ? sucursalActiva : sucursalUsuario;
 
             return (
-              <div className="min-h-screen bg-[#f5f5f5]">
-                <div className="bg-[#1E3A5F] text-white p-6">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-4">
-                      <button
-                        onClick={() => setVista('lista')}
-                        className="bg-white/10 hover:bg-white/20 p-2 rounded-lg transition-all"
-                      >
-                        <X size={24} />
-                      </button>
-                      <h1 className="text-2xl font-bold">Nuevo Reporte</h1>
-                    </div>
-                    <button
-                      onClick={handleLogout}
-                      className="bg-white/10 hover:bg-white/20 p-2 rounded-lg transition-all"
-                    >
-                      <LogOut size={20} />
-                    </button>
-                  </div>
+              <div className="min-h-screen bg-gray-50">
+                <div className="bg-blue-600 text-white p-6">
+                  <button onClick={() => setVista('lista')} className="mb-4 text-blue-100 hover:text-white">← Volver</button>
+                  <h1 className="text-2xl font-bold">Nuevo Reporte</h1>
+                  <p className="text-blue-100 text-sm mt-1">{SUCURSALES.find(s => s.id === sucursalCrear)?.nombre}</p>
                 </div>
 
-                <div className="p-4 space-y-4">
+                <div className="p-6 space-y-6">
                   <div>
-                    <label className="block text-sm font-semibold text-gray-700 mb-2">
-                      Categoría del Problema
-                    </label>
-                    <div className="grid grid-cols-1 gap-2">
+                    <label className="block text-gray-700 font-semibold mb-3">Categoría</label>
+                    <div className="grid grid-cols-1 gap-3">
                       {CATEGORIAS.map(cat => (
-                        <button
-                          key={cat.id}
-                          onClick={() => setFormData({ ...formData, categoria: cat.id })}
-                          className={`p-3 rounded-lg border-2 transition-all text-left ${
-                            formData.categoria === cat.id
-                              ? 'border-current shadow-sm scale-[1.02]'
-                              : 'border-gray-200 hover:border-gray-300'
-                          }`}
-                          style={{
-                            borderColor: formData.categoria === cat.id ? cat.color : undefined,
-                            backgroundColor: formData.categoria === cat.id ? `${cat.color}08` : 'white'
-                          }}
-                        >
+                        <button key={cat.id} onClick={() => setCategoria(cat.id)} className={`p-4 rounded-lg border-2 transition text-left ${categoria === cat.id ? 'border-blue-500 bg-blue-50' : 'border-gray-200 bg-white hover:border-gray-300'}`}>
                           <div className="flex items-center gap-3">
                             <span className="text-2xl">{cat.icon}</span>
-                            <span className="font-semibold text-gray-900">{cat.nombre}</span>
+                            <span className="font-medium" style={{ color: cat.color }}>{cat.nombre}</span>
                           </div>
                         </button>
                       ))}
@@ -1175,253 +563,225 @@
                   </div>
 
                   <div>
-                    <label className="block text-sm font-semibold text-gray-700 mb-2">
-                      Descripción del Problema
-                    </label>
-                    <textarea
-                      value={formData.descripcion}
-                      onChange={(e) => setFormData({ ...formData, descripcion: e.target.value })}
-                      placeholder="Describe qué está mal y dónde se encuentra..."
-                      className="w-full p-3 border-2 border-gray-200 rounded-lg focus:border-[#1E3A5F] focus:outline-none resize-none bg-white"
-                      rows={4}
-                    />
+                    <label className="block text-gray-700 font-semibold mb-2">Descripción</label>
+                    <textarea value={descripcion} onChange={(e) => setDescripcion(e.target.value)} placeholder="Describí el problema..." className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:border-blue-500 focus:outline-none" rows="4" />
                   </div>
 
                   <div>
-                    <label className="block text-sm font-semibold text-gray-700 mb-2">
-                      Foto del Problema
+                    <label className="block text-gray-700 font-semibold mb-2">Foto del problema</label>
+                    <input type="file" accept="image/*" onChange={handleFotoChange} className="hidden" id="foto-input" />
+                    <label htmlFor="foto-input" className="block w-full p-6 border-2 border-dashed border-gray-300 rounded-lg text-center cursor-pointer hover:border-blue-500 transition">
+                      {previsualizacion ? (
+                        <img src={previsualizacion} alt="Preview" className="max-h-48 mx-auto rounded" />
+                      ) : (
+                        <>
+                          <div className="text-4xl mb-2">📷</div>
+                          <div className="text-gray-600">Tocar para tomar foto</div>
+                        </>
+                      )}
                     </label>
-                    <input
-                      type="file"
-                      ref={fileInputRef}
-                      onChange={handleFotoCaptura}
-                      accept="image/*"
-                      className="hidden"
-                    />
-                    
-                    {!formData.foto ? (
-                      <button
-                        onClick={() => fileInputRef.current?.click()}
-                        className="w-full p-12 border-2 border-dashed border-gray-300 rounded-lg hover:border-[#1E3A5F] transition-all bg-white hover:bg-gray-50"
-                      >
-                        <Camera size={48} className="mx-auto mb-3 text-gray-400" />
-                        <p className="text-gray-600 font-medium">Tomar Foto o Elegir de Galería</p>
-                      </button>
-                    ) : (
-                      <div className="relative">
-                        <img
-                          src={formData.foto}
-                          alt="Preview"
-                          className="w-full rounded-lg"
-                        />
-                        <button
-                          onClick={() => setFormData({ ...formData, foto: null })}
-                          className="absolute top-2 right-2 bg-red-500 text-white p-2 rounded-full shadow-lg hover:bg-red-600"
-                        >
-                          <X size={20} />
-                        </button>
-                      </div>
-                    )}
                   </div>
 
-                  <button
-                    onClick={handleSubmit}
-                    disabled={!formData.categoria || !formData.descripcion || !formData.foto || cargando}
-                    className="w-full bg-[#1E3A5F] hover:bg-[#2A4A6F] text-white font-semibold py-4 rounded-lg shadow-sm hover:shadow-md transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-                  >
-                    {cargando ? (
-                      <>
-                        <Loader2 size={20} className="animate-spin" />
-                        Creando...
-                      </>
-                    ) : (
-                      'Crear Reporte'
-                    )}
+                  <button onClick={handleCrear} disabled={cargando || !categoria || !descripcion || !foto} className="w-full bg-blue-600 text-white py-4 rounded-lg font-semibold hover:bg-blue-700 transition disabled:bg-gray-300 disabled:cursor-not-allowed">
+                    {cargando ? 'Creando...' : '✅ Crear Reporte'}
                   </button>
                 </div>
               </div>
             );
           };
 
+          // ========================================
+          // DETALLE DE REPORTE
+          // ========================================
           const VistaDetalle = () => {
             if (!reporteActual) return null;
-            
-            const categoria = CATEGORIAS.find(c => c.id === reporteActual.categoria);
-            const estadoConfig = {
-              abierto: { color: '#EF4444', icon: AlertCircle, label: 'Abierto' },
-              resuelto: { color: '#10B981', icon: CheckCircle, label: 'Resuelto' }
-            };
-            const config = estadoConfig[reporteActual.estado];
-            const IconComponent = config.icon;
-            const fileInputRef = useRef(null);
 
-            const handleFotoSolucion = (e) => {
+            const categoria = CATEGORIAS.find(c => c.id === reporteActual.categoria);
+            const sucursal = SUCURSALES.find(s => s.id === reporteActual.sucursal);
+            const [fotoSolucion, setFotoSolucion] = useState(null);
+            const [previsualizacionSolucion, setPrevisualizacionSolucion] = useState(null);
+            const [nuevoComentario, setNuevoComentario] = useState('');
+
+            const handleFotoSolucionChange = async (e) => {
               const file = e.target.files[0];
               if (file) {
-                const reader = new FileReader();
-                reader.onloadend = () => {
-                  resolverReporte(reporteActual.id, reader.result);
-                };
-                reader.readAsDataURL(file);
+                try {
+                  const fotoComprimida = await comprimirFoto(file);
+                  setFotoSolucion(fotoComprimida);
+                  const reader = new FileReader();
+                  reader.onload = (e) => setPrevisualizacionSolucion(e.target.result);
+                  reader.readAsDataURL(fotoComprimida);
+                } catch (error) {
+                  console.error('Error al comprimir foto:', error);
+                  alert('Error al procesar la foto');
+                }
               }
             };
 
-            const fechaCreacion = reporteActual.fecha_creacion?.toDate ? reporteActual.fecha_creacion.toDate() : new Date(reporteActual.fecha_creacion);
-            const fechaResolucion = reporteActual.fecha_resolucion?.toDate ? reporteActual.fecha_resolucion.toDate() : null;
+            const handleResolver = async () => {
+              if (!fotoSolucion) { alert('Tomá una foto de la solución'); return; }
+              setCargando(true);
+              try {
+                // Intentar Storage; si falla, usar base64
+                let fotoGuardar = await subirFoto(fotoSolucion, 'soluciones');
+                if (!fotoGuardar) {
+                  console.log('📦 Guardando foto solución como base64...');
+                  fotoGuardar = await fileToBase64(fotoSolucion);
+                }
+
+                await db.collection('reportes').doc(reporteActual.id).update({
+                  estado: 'resuelto',
+                  foto_solucion: fotoGuardar,
+                  usuario_resuelve: usuario,
+                  usuario_resuelve_email: usuarioEmail,
+                  fecha_resolucion: new Date()
+                });
+
+                alert('✅ Reporte resuelto exitosamente');
+                setVista('lista');
+              } catch (error) {
+                console.error('❌ Error al resolver reporte:', error);
+                alert('Error al resolver: ' + error.message);
+              } finally {
+                setCargando(false);
+              }
+            };
+
+            const handleEliminar = async () => {
+              if (!esAdmin) { alert('Solo administradores pueden eliminar reportes'); return; }
+              if (!confirm('¿Estás seguro de eliminar este reporte?')) return;
+              try {
+                // Borrar fotos de Storage si son URLs
+                if (reporteActual.foto_problema && reporteActual.foto_problema.startsWith('http')) {
+                  try { await storage.refFromURL(reporteActual.foto_problema).delete(); } catch(e) {}
+                }
+                if (reporteActual.foto_solucion && reporteActual.foto_solucion.startsWith('http')) {
+                  try { await storage.refFromURL(reporteActual.foto_solucion).delete(); } catch(e) {}
+                }
+                await db.collection('reportes').doc(reporteActual.id).delete();
+                alert('✅ Reporte eliminado');
+                setVista('lista');
+              } catch (error) {
+                console.error('Error al eliminar:', error);
+                alert('Error al eliminar reporte');
+              }
+            };
+
+            const handleAgregarComentario = async () => {
+              if (!nuevoComentario.trim()) return;
+              try {
+                const comentariosActuales = reporteActual.comentarios || [];
+                await db.collection('reportes').doc(reporteActual.id).update({
+                  comentarios: [...comentariosActuales, {
+                    usuario: usuario,
+                    texto: nuevoComentario.trim(),
+                    fecha: new Date()
+                  }]
+                });
+                setNuevoComentario('');
+              } catch (error) {
+                console.error('Error al agregar comentario:', error);
+                alert('Error al agregar comentario');
+              }
+            };
 
             return (
-              <div className="min-h-screen bg-[#f5f5f5]">
-                <div className="bg-[#1E3A5F] text-white p-6">
-                  <div className="flex items-center justify-between mb-4">
-                    <div className="flex items-center gap-4">
-                      <button
-                        onClick={() => {
-                          setReporteActual(null);
-                          setVista('lista');
-                        }}
-                        className="bg-white/10 hover:bg-white/20 p-2 rounded-lg transition-all"
-                      >
-                        <X size={24} />
-                      </button>
-                      <h1 className="text-2xl font-bold">Detalle del Reporte</h1>
-                    </div>
-                    <button
-                      onClick={handleLogout}
-                      className="bg-white/10 hover:bg-white/20 p-2 rounded-lg transition-all"
-                    >
-                      <LogOut size={20} />
-                    </button>
-                  </div>
-
-                  <div className="flex items-center gap-2 px-3 py-1.5 rounded-md bg-white/10 inline-flex">
-                    <IconComponent size={20} />
-                    <span className="font-medium text-sm">{config.label}</span>
-                  </div>
+              <div className="min-h-screen bg-gray-50">
+                <div className="bg-blue-600 text-white p-6">
+                  <button onClick={() => setVista('lista')} className="mb-4 text-blue-100 hover:text-white">← Volver</button>
+                  <h1 className="text-2xl font-bold">Detalle del Reporte</h1>
+                  {sucursal && <p className="text-blue-100 text-sm mt-1">📍 {sucursal.nombre}</p>}
                 </div>
 
-                <div className="p-4 space-y-4">
-                  <div className="bg-white rounded-lg p-5 shadow-sm">
+                <div className="p-6 space-y-6">
+                  {/* Info principal */}
+                  <div className="bg-white rounded-lg p-6 shadow">
                     <div className="flex items-center gap-3 mb-4">
                       <span className="text-3xl">{categoria?.icon}</span>
                       <div>
-                        <h2 className="text-lg font-semibold text-gray-900">{categoria?.nombre}</h2>
+                        <div className="font-bold text-xl" style={{ color: categoria?.color }}>{categoria?.nombre}</div>
+                        <div className="text-sm text-gray-500">Reportado por {reporteActual.usuario_reporta}</div>
                       </div>
                     </div>
-                    
-                    <p className="text-gray-700 mb-4">{reporteActual.descripcion}</p>
-                    
-                    {usuario.esAdmin && (
-                      <button
-                        onClick={() => eliminarReporte(reporteActual.id)}
-                        className="w-full bg-red-600 hover:bg-red-700 text-white font-semibold py-3 rounded-lg mb-4 flex items-center justify-center gap-2"
-                      >
-                        <X size={20} />
-                        Eliminar Reporte (Admin)
-                      </button>
-                    )}
-                    
-                    <div className="text-sm text-gray-500 space-y-1">
-                      <p><strong>Creado:</strong> {fechaCreacion.toLocaleString('es-AR')}</p>
-                      <p><strong>Reportado por:</strong> {reporteActual.usuario_reporta}</p>
-                      {fechaResolucion && (
-                        <>
-                          <p><strong>Resuelto:</strong> {fechaResolucion.toLocaleString('es-AR')}</p>
-                          <p><strong>Resuelto por:</strong> {reporteActual.usuario_resuelve}</p>
-                        </>
-                      )}
+
+                    <div className={`inline-block px-4 py-2 rounded-full font-medium mb-4 ${reporteActual.estado === 'abierto' ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}>
+                      {reporteActual.estado === 'abierto' ? '🔴 Abierto' : '✅ Resuelto'}
                     </div>
+
+                    <p className="text-gray-700 mb-4">{reporteActual.descripcion}</p>
+                    <div className="text-sm text-gray-500">Creado: {formatFecha(reporteActual.fecha_creacion)}</div>
                   </div>
 
-                  {reporteActual.foto_solucion ? (
-                    <div className="bg-white rounded-lg p-5 shadow-sm">
-                      <h3 className="font-semibold text-gray-900 mb-4">📸 Comparación Antes/Después</h3>
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div>
-                          <div className="flex items-center gap-2 mb-2">
-                            <AlertCircle size={18} className="text-red-500" />
-                            <span className="font-medium text-sm text-gray-700">Antes (Problema)</span>
-                          </div>
-                          <img
-                            src={reporteActual.foto_problema}
-                            alt="Problema"
-                            className="w-full rounded-lg border-2 border-red-200"
-                          />
-                        </div>
-                        <div>
-                          <div className="flex items-center gap-2 mb-2">
-                            <CheckCircle size={18} className="text-green-500" />
-                            <span className="font-medium text-sm text-gray-700">Después (Solución)</span>
-                          </div>
-                          <img
-                            src={reporteActual.foto_solucion}
-                            alt="Solución"
-                            className="w-full rounded-lg border-2 border-green-200"
-                          />
-                        </div>
+                  {/* Foto del problema */}
+                  <div className="bg-white rounded-lg p-6 shadow">
+                    <h3 className="font-bold text-gray-800 mb-3">📷 Foto del Problema</h3>
+                    {reporteActual.foto_problema ? (
+                      <img src={reporteActual.foto_problema} alt="Problema" className="w-full rounded-lg" />
+                    ) : (
+                      <div className="text-gray-400 text-center py-8 bg-gray-50 rounded-lg">
+                        <div className="text-3xl mb-2">🗑️</div>
+                        Foto eliminada por política de retención ({DIAS_RETENCION} días)
                       </div>
-                    </div>
-                  ) : (
-                    <div className="bg-white rounded-lg p-5 shadow-sm">
-                      <h3 className="font-semibold text-gray-900 mb-3 flex items-center gap-2">
-                        <AlertCircle size={20} className="text-red-500" />
-                        Foto del Problema
-                      </h3>
-                      <img
-                        src={reporteActual.foto_problema}
-                        alt="Problema"
-                        className="w-full rounded-lg"
-                      />
+                    )}
+                  </div>
+
+                  {/* Foto de la solución (si está resuelto) */}
+                  {reporteActual.estado === 'resuelto' && (
+                    <div className="bg-white rounded-lg p-6 shadow">
+                      <h3 className="font-bold text-gray-800 mb-3">✅ Foto de la Solución</h3>
+                      {reporteActual.foto_solucion ? (
+                        <>
+                          <img src={reporteActual.foto_solucion} alt="Solución" className="w-full rounded-lg mb-3" />
+                          <div className="text-sm text-gray-500">
+                            Resuelto por {reporteActual.usuario_resuelve}<br />
+                            {formatFecha(reporteActual.fecha_resolucion)}
+                          </div>
+                        </>
+                      ) : (
+                        <div className="text-gray-400 text-center py-8 bg-gray-50 rounded-lg">
+                          <div className="text-3xl mb-2">🗑️</div>
+                          Foto eliminada por política de retención ({DIAS_RETENCION} días)
+                        </div>
+                      )}
                     </div>
                   )}
 
-                  {!reporteActual.foto_solucion && reporteActual.estado !== 'resuelto' && (
-                    <div className="bg-white rounded-lg p-5 shadow-sm">
-                      <input
-                        type="file"
-                        ref={fileInputRef}
-                        onChange={handleFotoSolucion}
-                        accept="image/*"
-                        className="hidden"
-                        disabled={validandoIA}
-                      />
-                      
-                      <button
-                        onClick={() => fileInputRef.current?.click()}
-                        disabled={validandoIA}
-                        className="w-full bg-green-600 hover:bg-green-700 text-white font-semibold py-4 rounded-lg shadow-sm hover:shadow-md transition-all disabled:opacity-50 flex items-center justify-center gap-2"
-                      >
-                        {validandoIA ? (
-                          <>
-                            <Loader2 size={20} className="animate-spin" />
-                            Validando con IA...
-                          </>
+                  {/* Resolver (si está abierto) */}
+                  {reporteActual.estado === 'abierto' && (
+                    <div className="bg-white rounded-lg p-6 shadow">
+                      <h3 className="font-bold text-gray-800 mb-3">Marcar como Resuelto</h3>
+                      <input type="file" accept="image/*" onChange={handleFotoSolucionChange} className="hidden" id="foto-solucion-input" />
+                      <label htmlFor="foto-solucion-input" className="block w-full p-6 border-2 border-dashed border-gray-300 rounded-lg text-center cursor-pointer hover:border-green-500 transition mb-4">
+                        {previsualizacionSolucion ? (
+                          <img src={previsualizacionSolucion} alt="Preview" className="max-h-48 mx-auto rounded" />
                         ) : (
                           <>
-                            <Camera size={20} />
-                            Subir Foto de Solución
+                            <div className="text-4xl mb-2">📷</div>
+                            <div className="text-gray-600">Tocar para tomar foto de la solución</div>
                           </>
                         )}
+                      </label>
+                      <button onClick={handleResolver} disabled={cargando || !fotoSolucion} className="w-full bg-green-600 text-white py-4 rounded-lg font-semibold hover:bg-green-700 transition disabled:bg-gray-300">
+                        {cargando ? 'Resolviendo...' : '✅ Marcar como Resuelto'}
                       </button>
                     </div>
                   )}
-                  
+
                   {/* Sección de Comentarios */}
-                  <div className="bg-white rounded-lg p-5 shadow-sm">
-                    <h3 className="font-semibold text-gray-900 mb-4 flex items-center gap-2">
-                      💬 Comentarios y Actualizaciones
-                    </h3>
+                  <div className="bg-white rounded-lg p-6 shadow">
+                    <h3 className="font-bold text-gray-800 mb-4">💬 Comentarios y Actualizaciones</h3>
                     
                     {/* Lista de comentarios */}
                     <div className="space-y-3 mb-4">
                       {reporteActual.comentarios && reporteActual.comentarios.length > 0 ? (
                         reporteActual.comentarios.map((comentario, index) => {
-                          const fecha = comentario.fecha?.toDate ? comentario.fecha.toDate() : new Date(comentario.fecha);
+                          const fecha = getFecha(comentario.fecha);
                           return (
                             <div key={index} className="bg-gray-50 p-3 rounded-lg">
                               <div className="flex items-center justify-between mb-1">
                                 <span className="font-medium text-sm text-gray-900">{comentario.usuario}</span>
                                 <span className="text-xs text-gray-500">
-                                  {fecha.toLocaleDateString('es-AR')} {fecha.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })}
+                                  {fecha && formatFecha(comentario.fecha)}
                                 </span>
                               </div>
                               <p className="text-sm text-gray-700">{comentario.texto}</p>
@@ -1441,41 +801,104 @@
                         onChange={(e) => setNuevoComentario(e.target.value)}
                         onKeyPress={(e) => {
                           if (e.key === 'Enter' && nuevoComentario.trim()) {
-                            agregarComentario(reporteActual.id, nuevoComentario);
+                            handleAgregarComentario();
                           }
                         }}
                         placeholder="Agregar actualización..."
                         className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                       />
                       <button
-                        onClick={() => agregarComentario(reporteActual.id, nuevoComentario)}
+                        onClick={handleAgregarComentario}
                         disabled={!nuevoComentario.trim()}
-                        className="bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-white px-4 py-2 rounded-lg font-medium transition-all"
+                        className="bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-white px-4 py-2 rounded-lg font-medium transition"
                       >
                         Enviar
                       </button>
                     </div>
                   </div>
+
+                  {/* Eliminar (solo admin) */}
+                  {esAdmin && (
+                    <button onClick={handleEliminar} className="w-full bg-red-600 text-white py-3 rounded-lg font-semibold hover:bg-red-700 transition">🗑️ Eliminar Reporte</button>
+                  )}
                 </div>
               </div>
             );
           };
 
+          // ========================================
+          // DASHBOARD
+          // ========================================
           const VistaDashboard = () => {
-            const porCategoria = CATEGORIAS.map(cat => ({
-              ...cat,
-              total: reportes.filter(r => r.categoria === cat.id).length,
-              abiertos: reportes.filter(r => r.categoria === cat.id && r.estado === 'abierto').length,
-              resueltos: reportes.filter(r => r.categoria === cat.id && r.estado === 'resuelto').length
-            }));
+            // Estados para filtro de fechas
+            const [filtroFecha, setFiltroFecha] = useState('todo'); // 'todo', 'semana', 'mes', 'mes_anterior', 'personalizado'
+            const [fechaDesde, setFechaDesde] = useState('');
+            const [fechaHasta, setFechaHasta] = useState('');
 
-            const totalReportes = reportes.length;
-            const tasaResolucion = totalReportes > 0 
-              ? Math.round((reportes.filter(r => r.estado === 'resuelto').length / totalReportes) * 100)
-              : 0;
+            // Funciones auxiliares de fechas
+            const hoy = new Date();
+            const inicioSemana = new Date(hoy);
+            inicioSemana.setDate(hoy.getDate() - hoy.getDay());
+            inicioSemana.setHours(0,0,0,0);
+
+            const inicioMes = new Date(hoy.getFullYear(), hoy.getMonth(), 1);
+            const finMes = new Date(hoy.getFullYear(), hoy.getMonth() + 1, 0, 23, 59, 59);
+
+            const inicioMesAnterior = new Date(hoy.getFullYear(), hoy.getMonth() - 1, 1);
+            const finMesAnterior = new Date(hoy.getFullYear(), hoy.getMonth(), 0, 23, 59, 59);
+
+            // Aplicar filtro de fechas
+            const reportesFiltrados = reportes.filter(r => {
+              if (filtroFecha === 'todo') return true;
+
+              const fechaCreacion = getFecha(r.fecha_creacion);
+              if (!fechaCreacion) return false;
+
+              let desde, hasta;
+              
+              if (filtroFecha === 'semana') {
+                desde = inicioSemana;
+                hasta = hoy;
+              } else if (filtroFecha === 'mes') {
+                desde = inicioMes;
+                hasta = finMes;
+              } else if (filtroFecha === 'mes_anterior') {
+                desde = inicioMesAnterior;
+                hasta = finMesAnterior;
+              } else if (filtroFecha === 'personalizado' && fechaDesde && fechaHasta) {
+                desde = new Date(fechaDesde);
+                hasta = new Date(fechaHasta);
+                hasta.setHours(23, 59, 59);
+              } else {
+                return true;
+              }
+
+              return fechaCreacion >= desde && fechaCreacion <= hasta;
+            });
+
+            // Calcular estadísticas con reportes filtrados
+            const stats = {
+              total: reportesFiltrados.length,
+              abiertos: reportesFiltrados.filter(r => r.estado === 'abierto').length,
+              resueltos: reportesFiltrados.filter(r => r.estado === 'resuelto').length,
+              tasaResolucion: reportesFiltrados.length > 0 ? Math.round((reportesFiltrados.filter(r => r.estado === 'resuelto').length / reportesFiltrados.length) * 100) : 0
+            };
+
+            const statsPorSucursal = esAdmin && sucursalActiva === 'TODAS'
+              ? SUCURSALES.map(suc => {
+                  const rep = reportesFiltrados.filter(r => r.sucursal === suc.id);
+                  const res = rep.filter(r => r.estado === 'resuelto').length;
+                  return { ...suc, total: rep.length, abiertos: rep.filter(r => r.estado === 'abierto').length, resueltos: res, tasaResolucion: rep.length > 0 ? Math.round((res / rep.length) * 100) : 0 };
+                }).filter(s => s.total > 0).sort((a, b) => b.total - a.total)
+              : null;
+
+            const porCategoria = CATEGORIAS.map(cat => {
+              const rep = reportesFiltrados.filter(r => r.categoria === cat.id);
+              return { ...cat, total: rep.length, abiertos: rep.filter(r => r.estado === 'abierto').length, resueltos: rep.filter(r => r.estado === 'resuelto').length };
+            }).filter(cat => cat.total > 0);
 
             const usuariosStats = {};
-            reportes.forEach(r => {
+            reportesFiltrados.forEach(r => {
               // Usar email como key para evitar duplicados
               const emailReporta = r.usuario_reporta_email || r.usuario_reporta;
               const nombreReporta = r.usuario_reporta;
@@ -1499,200 +922,143 @@
             });
 
             const topReportadores = Object.entries(usuariosStats)
+              .filter(([email, stats]) => stats.reportados > 0)
               .sort((a, b) => b[1].reportados - a[1].reportados)
               .slice(0, 5);
 
             const topResolvedores = Object.entries(usuariosStats)
+              .filter(([email, stats]) => stats.resueltos > 0)
               .sort((a, b) => b[1].resueltos - a[1].resueltos)
               .slice(0, 5);
 
-            const misStats = usuariosStats[usuario.email] || { nombre: usuario.nombreCompleto, reportados: 0, resueltos: 0 };
+            // Texto descriptivo del período
+            const getTextoPeriodo = () => {
+              if (filtroFecha === 'todo') return 'Todo el período';
+              if (filtroFecha === 'semana') return 'Esta semana';
+              if (filtroFecha === 'mes') return 'Este mes';
+              if (filtroFecha === 'mes_anterior') return 'Mes anterior';
+              if (filtroFecha === 'personalizado' && fechaDesde && fechaHasta) {
+                return `${new Date(fechaDesde).toLocaleDateString('es-AR')} - ${new Date(fechaHasta).toLocaleDateString('es-AR')}`;
+              }
+              return 'Seleccioná período';
+            };
 
             return (
-              <div className="min-h-screen bg-[#f5f5f5]">
-                <div className="bg-[#1E3A5F] text-white p-6">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-4">
-                      <button
-                        onClick={() => setVista('lista')}
-                        className="bg-white/10 hover:bg-white/20 p-2 rounded-lg transition-all"
-                      >
-                        <X size={24} />
-                      </button>
-                      <h1 className="text-2xl font-bold">Dashboard FERNI 07</h1>
-                    </div>
-                    <div className="flex gap-2">
-                      {usuario.esAdmin && (
-                        <button
-                          onClick={generarReporteHTML}
-                          disabled={reportes.length === 0}
-                          className="bg-green-600 hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed text-white px-4 py-2 rounded-lg transition-all flex items-center gap-2"
-                          title="Generar Reporte"
-                        >
-                          <Download size={20} />
-                          <span className="hidden sm:inline">Reporte</span>
-                        </button>
-                      )}
-                      <button
-                        onClick={handleLogout}
-                        className="bg-white/10 hover:bg-white/20 p-2 rounded-lg transition-all"
-                      >
-                        <LogOut size={20} />
-                      </button>
-                    </div>
+              <div className="min-h-screen bg-gray-50" id="dashboard-container">
+                <div className="bg-gradient-to-r from-blue-600 to-indigo-600 text-white p-6 no-print">
+                  <div className="flex justify-between items-center mb-4">
+                    <button onClick={() => setVista('lista')} className="text-blue-100 hover:text-white">← Volver</button>
+                    <button 
+                      onClick={() => window.print()} 
+                      className="bg-white/20 hover:bg-white/30 px-4 py-2 rounded-lg transition text-sm flex items-center gap-2"
+                    >
+                      🖨️ Imprimir / Descargar PDF
+                    </button>
+                  </div>
+                  <h1 className="text-2xl font-bold mb-2">📊 Dashboard</h1>
+                  <p className="text-blue-100">{sucursalActiva === 'TODAS' ? 'Todas las Sucursales' : SUCURSALES.find(s => s.id === sucursalActiva)?.nombre}</p>
+                </div>
+
+                {/* Header para impresión */}
+                <div className="print-only hidden">
+                  <div className="text-center mb-6 pb-4 border-b-2 border-gray-300">
+                    <h1 className="text-3xl font-bold text-gray-900 mb-2">FERNI - Dashboard de Incidencias</h1>
+                    <p className="text-lg text-gray-600">{sucursalActiva === 'TODAS' ? 'Todas las Sucursales' : SUCURSALES.find(s => s.id === sucursalActiva)?.nombre}</p>
+                    <p className="text-sm text-gray-500 mt-2">Período: {getTextoPeriodo()}</p>
+                    <p className="text-sm text-gray-500">Generado el {new Date().toLocaleDateString('es-AR', { day:'2-digit', month:'long', year:'numeric', hour:'2-digit', minute:'2-digit' })}</p>
                   </div>
                 </div>
 
-                <div className="p-4 space-y-4">
-                  <div className="bg-white rounded-lg p-5 shadow-sm border-2 border-[#1E3A5F]">
-                    <div className="flex items-center gap-2 mb-4">
-                      <User size={20} className="text-[#1E3A5F]" />
-                      <h2 className="text-lg font-semibold text-gray-900">Mis Estadísticas</h2>
+                <div className="p-6 space-y-6">
+                  {/* Filtro de fechas */}
+                  <div className="bg-white rounded-lg p-4 shadow no-print">
+                    <h3 className="font-bold text-gray-800 mb-3">📅 Filtrar por período</h3>
+                    
+                    {/* Botones rápidos */}
+                    <div className="flex flex-wrap gap-2 mb-4">
+                      <button onClick={() => setFiltroFecha('todo')} className={`px-4 py-2 rounded-lg font-medium transition ${filtroFecha === 'todo' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}>
+                        Todo
+                      </button>
+                      <button onClick={() => setFiltroFecha('semana')} className={`px-4 py-2 rounded-lg font-medium transition ${filtroFecha === 'semana' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}>
+                        Esta semana
+                      </button>
+                      <button onClick={() => setFiltroFecha('mes')} className={`px-4 py-2 rounded-lg font-medium transition ${filtroFecha === 'mes' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}>
+                        Este mes
+                      </button>
+                      <button onClick={() => setFiltroFecha('mes_anterior')} className={`px-4 py-2 rounded-lg font-medium transition ${filtroFecha === 'mes_anterior' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}>
+                        Mes anterior
+                      </button>
+                      <button onClick={() => setFiltroFecha('personalizado')} className={`px-4 py-2 rounded-lg font-medium transition ${filtroFecha === 'personalizado' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}>
+                        Personalizado
+                      </button>
                     </div>
-                    <div className="grid grid-cols-2 gap-3">
-                      <div className="text-center p-4 bg-blue-50 rounded-lg">
-                        <div className="text-3xl font-bold text-blue-600">{misStats.reportados}</div>
-                        <div className="text-sm text-gray-600">Reportados</div>
-                      </div>
-                      <div className="text-center p-4 bg-green-50 rounded-lg">
-                        <div className="text-3xl font-bold text-green-600">{misStats.resueltos}</div>
-                        <div className="text-sm text-gray-600">Resueltos</div>
-                      </div>
-                    </div>
-                  </div>
 
-                  <div className="bg-white rounded-lg p-5 shadow-sm">
-                    <h2 className="text-lg font-semibold text-gray-900 mb-4">Resumen General</h2>
-                    <div className="grid grid-cols-2 gap-3 mb-3">
-                      <div className="text-center p-4 bg-gray-50 rounded-lg">
-                        <div className="text-3xl font-bold text-[#1E3A5F]">{totalReportes}</div>
-                        <div className="text-sm text-gray-600">Total Reportes</div>
-                      </div>
-                      <div className="text-center p-4 bg-gray-50 rounded-lg">
-                        <div className="text-3xl font-bold text-green-600">{tasaResolucion}%</div>
-                        <div className="text-sm text-gray-600">Tasa Resolución</div>
-                      </div>
-                    </div>
-                    <div className="grid grid-cols-2 gap-3">
-                      <div className="text-center p-3 bg-red-50 rounded-lg">
-                        <div className="text-2xl font-bold text-red-600">
-                          {reportes.filter(r => r.estado === 'abierto').length}
+                    {/* Date pickers (solo si es personalizado) */}
+                    {filtroFecha === 'personalizado' && (
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">Desde</label>
+                          <input 
+                            type="date" 
+                            value={fechaDesde} 
+                            onChange={(e) => setFechaDesde(e.target.value)}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:border-blue-500 focus:outline-none"
+                          />
                         </div>
-                        <div className="text-xs text-gray-600">Abiertos</div>
-                      </div>
-                      <div className="text-center p-3 bg-green-50 rounded-lg">
-                        <div className="text-2xl font-bold text-green-600">
-                          {reportes.filter(r => r.estado === 'resuelto').length}
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">Hasta</label>
+                          <input 
+                            type="date" 
+                            value={fechaHasta} 
+                            onChange={(e) => setFechaHasta(e.target.value)}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:border-blue-500 focus:outline-none"
+                          />
                         </div>
-                        <div className="text-xs text-gray-600">Resueltos</div>
                       </div>
+                    )}
+
+                    <div className="mt-3 text-sm text-gray-600">
+                      📌 Mostrando: <span className="font-semibold">{getTextoPeriodo()}</span> ({reportesFiltrados.length} reportes)
                     </div>
                   </div>
 
-                  {/* Gráfico de categorías */}
-                  <div className="bg-white rounded-lg p-5 shadow-sm">
-                    <h2 className="text-lg font-semibold text-gray-900 mb-4">📊 Incidencias por Categoría</h2>
-                    <canvas ref={el => {
-                      if (el && porCategoria.length > 0) {
-                        const ctx = el.getContext('2d');
-                        // Destruir gráfico anterior si existe
-                        if (el.chart) {
-                          el.chart.destroy();
-                        }
-                        // Crear nuevo gráfico
-                        el.chart = new Chart(ctx, {
-                          type: 'bar',
-                          data: {
-                            labels: porCategoria.map(c => c.icon + ' ' + c.nombre),
-                            datasets: [
-                              {
-                                label: 'Abiertos',
-                                data: porCategoria.map(c => c.abiertos),
-                                backgroundColor: '#EF4444',
-                                borderRadius: 4
-                              },
-                              {
-                                label: 'Resueltos',
-                                data: porCategoria.map(c => c.resueltos),
-                                backgroundColor: '#10B981',
-                                borderRadius: 4
-                              }
-                            ]
-                          },
-                          options: {
-                            responsive: true,
-                            maintainAspectRatio: true,
-                            aspectRatio: 1.5,
-                            plugins: {
-                              legend: {
-                                position: 'top',
-                              }
-                            },
-                            scales: {
-                              x: {
-                                stacked: false,
-                              },
-                              y: {
-                                stacked: false,
-                                beginAtZero: true,
-                                ticks: {
-                                  stepSize: 1
-                                }
-                              }
-                            }
-                          }
-                        });
-                      }
-                    }} />
+                  {/* Estadísticas principales */}
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="bg-white rounded-lg p-4 shadow"><div className="text-3xl font-bold text-blue-600">{stats.total}</div><div className="text-sm text-gray-600">Total Reportes</div></div>
+                    <div className="bg-white rounded-lg p-4 shadow"><div className="text-3xl font-bold text-red-600">{stats.abiertos}</div><div className="text-sm text-gray-600">Abiertos</div></div>
+                    <div className="bg-white rounded-lg p-4 shadow"><div className="text-3xl font-bold text-green-600">{stats.resueltos}</div><div className="text-sm text-gray-600">Resueltos</div></div>
+                    <div className="bg-white rounded-lg p-4 shadow"><div className="text-3xl font-bold text-purple-600">{stats.tasaResolucion}%</div><div className="text-sm text-gray-600">Tasa Resolución</div></div>
                   </div>
 
-                  {topReportadores.length > 0 && (
-                    <div className="bg-white rounded-lg p-5 shadow-sm">
-                      <h2 className="text-lg font-semibold text-gray-900 mb-4">🔍 Top Reportadores</h2>
-                      <div className="space-y-2">
-                        {topReportadores.map(([email, stats], index) => (
-                          <div key={email} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                            <div className="flex items-center gap-3">
-                              <div className="w-8 h-8 bg-blue-500 text-white rounded-full flex items-center justify-center font-bold text-sm">
-                                {index + 1}
+                  {statsPorSucursal && (
+                    <div className="bg-white rounded-lg p-6 shadow">
+                      <h2 className="text-xl font-bold text-gray-800 mb-4">Por Sucursal</h2>
+                      <div className="space-y-3">
+                        {statsPorSucursal.map(suc => (
+                          <div key={suc.id} className="border-b border-gray-100 pb-3 last:border-0">
+                            <div className="flex justify-between items-center mb-1">
+                              <div className="font-semibold text-gray-800">{suc.nombre}</div>
+                              <div className="flex items-center gap-3">
+                                <span className="text-sm text-gray-600">{suc.total} reportes</span>
+                                <span className={`px-3 py-1 rounded-full text-xs font-bold ${suc.tasaResolucion >= 80 ? 'bg-green-100 text-green-700' : suc.tasaResolucion >= 60 ? 'bg-yellow-100 text-yellow-700' : 'bg-red-100 text-red-700'}`}>{suc.tasaResolucion}%</span>
                               </div>
-                              <span className="font-medium text-gray-900">{stats.nombre}</span>
                             </div>
-                            <span className="font-bold text-blue-600">{stats.reportados}</span>
+                            <div className="flex gap-4 text-xs">
+                              <span className="text-red-600">{suc.abiertos} abiertos</span>
+                              <span className="text-green-600">{suc.resueltos} resueltos</span>
+                            </div>
                           </div>
                         ))}
                       </div>
                     </div>
                   )}
 
-                  {topResolvedores.length > 0 && (
-                    <div className="bg-white rounded-lg p-5 shadow-sm">
-                      <h2 className="text-lg font-semibold text-gray-900 mb-4">✅ Top Resolvedores</h2>
-                      <div className="space-y-2">
-                        {topResolvedores.map(([email, stats], index) => (
-                          <div key={email} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                            <div className="flex items-center gap-3">
-                              <div className="w-8 h-8 bg-green-500 text-white rounded-full flex items-center justify-center font-bold text-sm">
-                                {index + 1}
-                              </div>
-                              <span className="font-medium text-gray-900">{stats.nombre}</span>
-                            </div>
-                            <span className="font-bold text-green-600">{stats.resueltos}</span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  <div className="bg-white rounded-lg p-5 shadow-sm">
-                    <h2 className="text-lg font-semibold text-gray-900 mb-4">Por Categoría</h2>
-                    <div className="space-y-3">
+                  <div className="bg-white rounded-lg p-6 shadow">
+                    <h2 className="text-xl font-bold text-gray-800 mb-4">Por Categoría</h2>
+                    <div className="space-y-4">
                       {porCategoria.map(cat => (
-                        <div key={cat.id} className="p-4 rounded-lg border-2" style={{ 
-                          borderColor: cat.color,
-                          backgroundColor: `${cat.color}08`
-                        }}>
-                          <div className="flex items-center justify-between mb-2">
+                        <div key={cat.id}>
+                          <div className="flex justify-between items-center mb-1">
                             <div className="flex items-center gap-2">
                               <span className="text-xl">{cat.icon}</span>
                               <span className="font-semibold text-gray-900">{cat.nombre}</span>
@@ -1707,13 +1073,118 @@
                       ))}
                     </div>
                   </div>
+
+                  {/* Gráfico de categorías */}
+                  {porCategoria.length > 0 && (
+                    <div className="bg-white rounded-lg p-6 shadow no-print">
+                      <h2 className="text-xl font-bold text-gray-800 mb-4">📊 Incidencias por Categoría</h2>
+                      <canvas ref={el => {
+                        if (el && porCategoria.length > 0) {
+                          const ctx = el.getContext('2d');
+                          // Destruir gráfico anterior si existe
+                          if (el.chart) {
+                            el.chart.destroy();
+                          }
+                          // Crear nuevo gráfico
+                          el.chart = new Chart(ctx, {
+                            type: 'bar',
+                            data: {
+                              labels: porCategoria.map(c => c.icon + ' ' + c.nombre),
+                              datasets: [
+                                {
+                                  label: 'Abiertos',
+                                  data: porCategoria.map(c => c.abiertos),
+                                  backgroundColor: '#EF4444',
+                                  borderRadius: 4
+                                },
+                                {
+                                  label: 'Resueltos',
+                                  data: porCategoria.map(c => c.resueltos),
+                                  backgroundColor: '#10B981',
+                                  borderRadius: 4
+                                }
+                              ]
+                            },
+                            options: {
+                              responsive: true,
+                              maintainAspectRatio: true,
+                              aspectRatio: 1.5,
+                              plugins: {
+                                legend: {
+                                  position: 'top',
+                                }
+                              },
+                              scales: {
+                                x: {
+                                  stacked: false,
+                                },
+                                y: {
+                                  stacked: false,
+                                  beginAtZero: true,
+                                  ticks: {
+                                    stepSize: 1
+                                  }
+                                }
+                              }
+                            }
+                          });
+                        }
+                      }} />
+                    </div>
+                  )}
+
+                  {topReportadores.length > 0 && (
+                    <div className="bg-white rounded-lg p-6 shadow">
+                      <h2 className="text-xl font-bold text-gray-800 mb-4">🏆 Top Reportadores</h2>
+                      <div className="space-y-3">
+                        {topReportadores.map(([email, stats], idx) => (
+                          <div key={email} className="flex justify-between items-center">
+                            <div className="flex items-center gap-3">
+                              <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold ${idx === 0 ? 'bg-yellow-400 text-yellow-900' : idx === 1 ? 'bg-gray-300 text-gray-700' : idx === 2 ? 'bg-orange-400 text-orange-900' : 'bg-gray-100 text-gray-600'}`}>{idx + 1}</div>
+                              <span className="font-medium text-gray-800">{stats.nombre}</span>
+                            </div>
+                            <span className="font-bold text-blue-600">{stats.reportados}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {topResolvedores.length > 0 && (
+                    <div className="bg-white rounded-lg p-6 shadow">
+                      <h2 className="text-xl font-bold text-gray-800 mb-4">⚡ Top Resolvedores</h2>
+                      <div className="space-y-3">
+                        {topResolvedores.map(([email, stats], idx) => (
+                          <div key={email} className="flex justify-between items-center">
+                            <div className="flex items-center gap-3">
+                              <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold ${idx === 0 ? 'bg-yellow-400 text-yellow-900' : idx === 1 ? 'bg-gray-300 text-gray-700' : idx === 2 ? 'bg-orange-400 text-orange-900' : 'bg-gray-100 text-gray-600'}`}>{idx + 1}</div>
+                              <span className="font-medium text-gray-800">{stats.nombre}</span>
+                            </div>
+                            <span className="font-bold text-green-600">{stats.resueltos}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {esAdmin && (
+                    <div className="bg-blue-50 rounded-lg p-4 border border-blue-200">
+                      <div className="flex gap-3">
+                        <div className="text-2xl">🧹</div>
+                        <div>
+                          <div className="font-semibold text-blue-900">Limpieza Automática Activa</div>
+                          <div className="text-sm text-blue-700">Las fotos de reportes resueltos se eliminan automáticamente después de {DIAS_RETENCION} días.</div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
             );
           };
-          
+
           return (
-            <div className="font-sans">
+            <div>
               {vista === 'login' && <VistaLogin />}
               {vista === 'lista' && <VistaLista />}
               {vista === 'crear' && <VistaCrear />}
@@ -1724,7 +1195,7 @@
         }
 
         const root = ReactDOM.createRoot(document.getElementById('root'));
-        root.render(<FerniIncidencias />);
+        root.render(<FerniApp />);
     </script>
 
     <style>
@@ -1734,14 +1205,64 @@
             -webkit-box-orient: vertical;
             overflow: hidden;
         }
-        
-        @keyframes spin {
-            from { transform: rotate(0deg); }
-            to { transform: rotate(360deg); }
-        }
-        
-        .animate-spin {
-            animation: spin 1s linear infinite;
+
+        /* Estilos para impresión */
+        @media print {
+            /* Ocultar elementos de navegación */
+            .no-print {
+                display: none !important;
+            }
+
+            /* Mostrar header especial para impresión */
+            .print-only {
+                display: block !important;
+            }
+
+            /* Optimizar página */
+            body {
+                background: white !important;
+            }
+
+            #dashboard-container {
+                background: white !important;
+                min-height: auto !important;
+            }
+
+            /* Evitar saltos de página dentro de elementos */
+            .bg-white {
+                page-break-inside: avoid;
+                break-inside: avoid;
+            }
+
+            /* Ajustar márgenes y padding para impresión */
+            .p-6 {
+                padding: 1rem !important;
+            }
+
+            /* Asegurar que los colores se impriman */
+            * {
+                -webkit-print-color-adjust: exact;
+                print-color-adjust: exact;
+            }
+
+            /* Ajustar tamaños de fuente para papel */
+            .text-3xl {
+                font-size: 1.5rem !important;
+            }
+
+            .text-2xl {
+                font-size: 1.25rem !important;
+            }
+
+            .text-xl {
+                font-size: 1.1rem !important;
+            }
+
+            /* Agregar bordes sutiles para mejor legibilidad */
+            .shadow {
+                box-shadow: none !important;
+                border: 1px solid #e5e7eb !important;
+            }
         }
     </style>
 </body>
