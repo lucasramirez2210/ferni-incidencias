@@ -46,9 +46,21 @@
         const DIAS_RETENCION = 90;
         
         const ADMINS = [
-          { nombre: 'Lucas', email: 'lucas.ramirez2210@gmail.com', password: 'ferni2025' },
-          { nombre: 'Gastón Rivero', email: 'gastonrivero043@gmail.com', password: 'ferni2025' }
+          { nombre: 'Lucas', email: 'lucas.ramirez2210@gmail.com', password: 'ferni2025' }
         ];
+
+        // Gerentes de tienda: usuario predeterminado por sucursal
+        const GERENTES = {
+          'gerenteferni1': 'F1',
+          'gerenteferni2': 'F2',
+          'gerenteferni3': 'F3',
+          'gerenteferni4': 'F4',
+          'gerenteferni5': 'F5',
+          'gerenteferni6': 'F6',
+          'gerenteferni7': 'F7',
+          'gerenteferni8': 'F8',
+          'gerenteferni9': 'F9'
+        };
         
         const SUCURSALES = [
           { id: 'F1', nombre: 'FERNI 1' },
@@ -203,6 +215,7 @@
           const [sucursalUsuario, setSucursalUsuario] = useState(null);
           const [sucursalActiva, setSucursalActiva] = useState(null);
           const [esAdmin, setEsAdmin] = useState(false);
+          const [esGerente, setEsGerente] = useState(false);
           const [reportes, setReportes] = useState([]);
           const [reportesNuevos, setReportesNuevos] = useState([]);
           const [contadorNuevos, setContadorNuevos] = useState(0);
@@ -212,10 +225,10 @@
 
           // Limpieza automática (solo admins)
           useEffect(() => {
-            if (esAdmin) {
+            if (esAdmin || esGerente) {
               limpiarFotosViejas();
             }
-          }, [esAdmin]);
+          }, [esAdmin, esGerente]);
 
           // Cargar reportes — sin orderBy en Firestore, ordenamos en JS
           useEffect(() => {
@@ -280,12 +293,32 @@
 
             const handleLoginEmpleado = () => {
               if (!nombre.trim() || !email.trim() || !sucursal) { alert('Completá nombre, email y sucursal'); return; }
-              setUsuario(nombre.trim());
-              setUsuarioEmail(email.trim().toLowerCase());
-              setSucursalUsuario(sucursal);
-              setSucursalActiva(sucursal);
-              setEsAdmin(false);
-              setVista('lista');
+              const emailLower = email.trim().toLowerCase();
+              const gerenteSucursal = GERENTES[emailLower];
+              
+              if (gerenteSucursal) {
+                // Es un gerente de tienda
+                if (gerenteSucursal !== sucursal) {
+                  alert(`⚠️ El usuario ${emailLower} corresponde a ${SUCURSALES.find(s => s.id === gerenteSucursal)?.nombre}. Seleccioná la sucursal correcta.`);
+                  return;
+                }
+                setUsuario(nombre.trim());
+                setUsuarioEmail(emailLower);
+                setSucursalUsuario(sucursal);
+                setSucursalActiva(sucursal);
+                setEsAdmin(false);
+                setEsGerente(true);
+                setVista('lista');
+              } else {
+                // Empleado común
+                setUsuario(nombre.trim());
+                setUsuarioEmail(emailLower);
+                setSucursalUsuario(sucursal);
+                setSucursalActiva(sucursal);
+                setEsAdmin(false);
+                setEsGerente(false);
+                setVista('lista');
+              }
             };
 
             const handleLoginAdmin = () => {
@@ -297,6 +330,7 @@
               setSucursalUsuario('TODAS');
               setSucursalActiva('TODAS');
               setEsAdmin(true);
+              setEsGerente(false);
               setVista('lista');
             };
 
@@ -387,7 +421,7 @@
                           </span>
                         )}
                       </div>
-                      <p className="text-blue-100 text-sm">Hola, {usuario} {esAdmin && '👑'}</p>
+                      <p className="text-blue-100 text-sm">Hola, {usuario} {esAdmin && '👑'} {esGerente && '🏪 Gerente'}</p>
                       
                       {esAdmin ? (
                         <div className="mt-3">
@@ -648,7 +682,7 @@
             };
 
             const handleEliminar = async () => {
-              if (!esAdmin) { alert('Solo administradores pueden eliminar reportes'); return; }
+              if (!esAdmin && !esGerente) { alert('Solo administradores y gerentes pueden eliminar reportes'); return; }
               if (!confirm('¿Estás seguro de eliminar este reporte?')) return;
               try {
                 // Borrar fotos de Storage si son URLs
@@ -817,8 +851,8 @@
                     </div>
                   </div>
 
-                  {/* Eliminar (solo admin) */}
-                  {esAdmin && (
+                  {/* Eliminar (admin o gerente) */}
+                  {(esAdmin || esGerente) && (
                     <button onClick={handleEliminar} className="w-full bg-red-600 text-white py-3 rounded-lg font-semibold hover:bg-red-700 transition">🗑️ Eliminar Reporte</button>
                   )}
                 </div>
@@ -1167,7 +1201,7 @@
                     </div>
                   )}
 
-                  {esAdmin && (
+                  {(esAdmin || esGerente) && (
                     <div className="bg-blue-50 rounded-lg p-4 border border-blue-200">
                       <div className="flex gap-3">
                         <div className="text-2xl">🧹</div>
@@ -1178,6 +1212,169 @@
                       </div>
                     </div>
                   )}
+
+                  {/* Análisis Inteligente - Solo admin y gerentes */}
+                  {(esAdmin || esGerente) && (() => {
+                    const generarAnalisis = () => {
+                      if (reportesFiltrados.length === 0) return null;
+
+                      const totalR = reportesFiltrados.length;
+                      const abiertosR = reportesFiltrados.filter(r => r.estado === 'abierto');
+                      const resueltosR = reportesFiltrados.filter(r => r.estado === 'resuelto');
+                      const tasaRes = totalR > 0 ? Math.round((resueltosR.length / totalR) * 100) : 0;
+
+                      // Categoría más problemática (más abiertos)
+                      const catAbiertos = {};
+                      abiertosR.forEach(r => { catAbiertos[r.categoria] = (catAbiertos[r.categoria] || 0) + 1; });
+                      const catCriticaId = Object.entries(catAbiertos).sort((a, b) => b[1] - a[1])[0];
+                      const catCritica = catCriticaId ? CATEGORIAS.find(c => c.id === catCriticaId[0]) : null;
+
+                      // Categoría con peor tasa de resolución
+                      const catTasas = CATEGORIAS.map(cat => {
+                        const rep = reportesFiltrados.filter(r => r.categoria === cat.id);
+                        const res = rep.filter(r => r.estado === 'resuelto').length;
+                        return { ...cat, total: rep.length, resueltos: res, tasa: rep.length > 0 ? Math.round((res / rep.length) * 100) : 100 };
+                      }).filter(c => c.total >= 2).sort((a, b) => a.tasa - b.tasa);
+                      const peorCategoria = catTasas.length > 0 ? catTasas[0] : null;
+
+                      // Tiempo promedio de resolución
+                      const tiempos = resueltosR.map(r => {
+                        const fc = getFecha(r.fecha_creacion);
+                        const fr = getFecha(r.fecha_resolucion);
+                        if (fc && fr) return (fr - fc) / (1000 * 60 * 60);
+                        return null;
+                      }).filter(t => t !== null && t >= 0);
+                      const tiempoPromedio = tiempos.length > 0 ? Math.round(tiempos.reduce((a, b) => a + b, 0) / tiempos.length) : null;
+
+                      // Empleados destacados
+                      const resolvedoresCount = {};
+                      resueltosR.forEach(r => {
+                        const key = r.usuario_resuelve_email || r.usuario_resuelve;
+                        const name = r.usuario_resuelve;
+                        if (key && name) {
+                          if (!resolvedoresCount[key]) resolvedoresCount[key] = { nombre: name, count: 0 };
+                          resolvedoresCount[key].count++;
+                        }
+                      });
+                      const topResolvedor = Object.values(resolvedoresCount).sort((a, b) => b.count - a.count)[0];
+
+                      // Tendencia: comparar primera mitad vs segunda mitad
+                      const mitad = Math.floor(reportesFiltrados.length / 2);
+                      const primeraM = reportesFiltrados.slice(mitad); // más viejos (por sort desc)
+                      const segundaM = reportesFiltrados.slice(0, mitad); // más recientes
+                      const tasaPrimera = primeraM.length > 0 ? primeraM.filter(r => r.estado === 'resuelto').length / primeraM.length : 0;
+                      const tasaSegunda = segundaM.length > 0 ? segundaM.filter(r => r.estado === 'resuelto').length / segundaM.length : 0;
+                      const tendencia = tasaSegunda > tasaPrimera + 0.05 ? 'mejorando' : tasaSegunda < tasaPrimera - 0.05 ? 'empeorando' : 'estable';
+
+                      // Sucursal más crítica (solo para admin viendo todas)
+                      let sucCritica = null;
+                      if (esAdmin && sucursalActiva === 'TODAS') {
+                        const sucStats = SUCURSALES.map(suc => {
+                          const rep = reportesFiltrados.filter(r => r.sucursal === suc.id);
+                          const ab = rep.filter(r => r.estado === 'abierto').length;
+                          return { ...suc, abiertos: ab, total: rep.length };
+                        }).filter(s => s.total > 0).sort((a, b) => b.abiertos - a.abiertos);
+                        sucCritica = sucStats.length > 0 && sucStats[0].abiertos > 0 ? sucStats[0] : null;
+                      }
+
+                      // Generar recomendaciones
+                      const recomendaciones = [];
+                      
+                      if (tasaRes < 60) {
+                        recomendaciones.push({ tipo: 'alerta', texto: `La tasa de resolución es del ${tasaRes}%. Objetivo recomendado: 80%+. Considerar asignar responsables fijos por categoría.` });
+                      } else if (tasaRes >= 80) {
+                        recomendaciones.push({ tipo: 'exito', texto: `Excelente tasa de resolución del ${tasaRes}%. El equipo está respondiendo bien a las incidencias.` });
+                      } else {
+                        recomendaciones.push({ tipo: 'atencion', texto: `Tasa de resolución del ${tasaRes}%. Hay margen de mejora, el objetivo ideal es superar el 80%.` });
+                      }
+
+                      if (catCritica && catCriticaId[1] >= 3) {
+                        recomendaciones.push({ tipo: 'alerta', texto: `"${catCritica.icon} ${catCritica.nombre}" tiene ${catCriticaId[1]} incidencias abiertas. Recomendación: priorizar esta categoría esta semana.` });
+                      }
+
+                      if (peorCategoria && peorCategoria.tasa < 50) {
+                        recomendaciones.push({ tipo: 'atencion', texto: `"${peorCategoria.icon} ${peorCategoria.nombre}" tiene la tasa más baja (${peorCategoria.tasa}%). Revisar si hay bloqueos o falta de recursos.` });
+                      }
+
+                      if (tiempoPromedio !== null) {
+                        if (tiempoPromedio > 72) {
+                          recomendaciones.push({ tipo: 'alerta', texto: `Tiempo promedio de resolución: ${tiempoPromedio}hs (~${Math.round(tiempoPromedio/24)} días). Es alto. Definir SLAs por categoría puede mejorar esto.` });
+                        } else if (tiempoPromedio <= 24) {
+                          recomendaciones.push({ tipo: 'exito', texto: `Tiempo promedio de resolución: ${tiempoPromedio}hs. Respuesta rápida del equipo.` });
+                        } else {
+                          recomendaciones.push({ tipo: 'atencion', texto: `Tiempo promedio de resolución: ${tiempoPromedio}hs (~${Math.round(tiempoPromedio/24)} días). Aceptable, pero se puede mejorar.` });
+                        }
+                      }
+
+                      if (topResolvedor) {
+                        recomendaciones.push({ tipo: 'exito', texto: `${topResolvedor.nombre} lidera las resoluciones con ${topResolvedor.count} problemas resueltos. Reconocer su compromiso.` });
+                      }
+
+                      if (tendencia === 'mejorando') {
+                        recomendaciones.push({ tipo: 'exito', texto: 'Tendencia positiva: la tasa de resolución viene mejorando en el período reciente.' });
+                      } else if (tendencia === 'empeorando') {
+                        recomendaciones.push({ tipo: 'alerta', texto: 'Tendencia negativa: la tasa de resolución viene bajando. Revisar carga de trabajo y recursos.' });
+                      }
+
+                      if (sucCritica && sucCritica.abiertos >= 3) {
+                        recomendaciones.push({ tipo: 'atencion', texto: `${sucCritica.nombre} tiene ${sucCritica.abiertos} incidencias abiertas, más que otras sucursales. Requiere atención.` });
+                      }
+
+                      if (abiertosR.length === 0 && totalR > 0) {
+                        recomendaciones.push({ tipo: 'exito', texto: '¡No hay incidencias abiertas! Todas resueltas. Excelente trabajo del equipo.' });
+                      }
+
+                      return recomendaciones;
+                    };
+
+                    const [mostrarAnalisis, setMostrarAnalisis] = useState(false);
+                    const analisis = mostrarAnalisis ? generarAnalisis() : null;
+
+                    return (
+                      <div className="bg-white rounded-lg p-6 shadow">
+                        <button 
+                          onClick={() => setMostrarAnalisis(!mostrarAnalisis)}
+                          className="w-full bg-gradient-to-r from-purple-600 to-indigo-600 text-white py-4 rounded-lg font-semibold hover:from-purple-700 hover:to-indigo-700 transition flex items-center justify-center gap-3 text-lg"
+                        >
+                          <span className="text-2xl">🧠</span>
+                          {mostrarAnalisis ? 'Ocultar Análisis' : 'Generar Análisis Inteligente'}
+                        </button>
+                        
+                        {mostrarAnalisis && analisis && analisis.length > 0 && (
+                          <div className="mt-6 space-y-3">
+                            <h3 className="font-bold text-gray-800 text-lg mb-4">📋 Informe de Situación</h3>
+                            {analisis.map((item, idx) => (
+                              <div key={idx} className={`p-4 rounded-lg border-l-4 ${
+                                item.tipo === 'alerta' ? 'bg-red-50 border-red-500' :
+                                item.tipo === 'atencion' ? 'bg-yellow-50 border-yellow-500' :
+                                'bg-green-50 border-green-500'
+                              }`}>
+                                <div className="flex items-start gap-3">
+                                  <span className="text-xl mt-0.5">
+                                    {item.tipo === 'alerta' ? '🔴' : item.tipo === 'atencion' ? '🟡' : '🟢'}
+                                  </span>
+                                  <p className={`text-sm font-medium ${
+                                    item.tipo === 'alerta' ? 'text-red-800' :
+                                    item.tipo === 'atencion' ? 'text-yellow-800' :
+                                    'text-green-800'
+                                  }`}>{item.texto}</p>
+                                </div>
+                              </div>
+                            ))}
+                            <div className="text-xs text-gray-400 mt-4 text-center">
+                              Análisis generado sobre {reportesFiltrados.length} reportes • {getTextoPeriodo()}
+                            </div>
+                          </div>
+                        )}
+                        
+                        {mostrarAnalisis && (!analisis || analisis.length === 0) && (
+                          <div className="mt-4 text-center text-gray-500 py-4">
+                            No hay suficientes datos para generar análisis en este período.
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })()}
                 </div>
               </div>
             );
